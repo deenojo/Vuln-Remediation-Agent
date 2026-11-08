@@ -1,7 +1,7 @@
 # INTENTIONALLY OUTDATED. This app exists only to give the scanners and the agent real findings to fix.
 # Do not deploy it anywhere public.
 flask==0.12.3
-jinja2==2.10
+jinja2==2.11.3
 requests==2.32.4
 pyyaml==5.4
 # Pinned so Flask 0.12 actually runs (newer Werkzeug/MarkupSafe break it).
