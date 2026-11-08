@@ -5,7 +5,7 @@ jinja2==2.10
 requests==2.19.1
 pyyaml==5.3.1
 # Pinned so Flask 0.12 actually runs (newer Werkzeug/MarkupSafe break it).
-werkzeug==0.16.1
+werkzeug==3.1.9
 itsdangerous==1.1.0
 markupsafe==1.1.1
 # Installed but never imported by app.py: used later to test reachability-aware triage.
