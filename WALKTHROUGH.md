@@ -46,7 +46,7 @@ The agent needs real findings to fix. `pillow` is installed but **never imported
 - Why not just use Dependabot? *(Dependabot opens PRs but doesn't triage by reachability, doesn't patch OS packages in images, and doesn't gate by policy. This project adds those layers on top.)*
 
 ### Known limitations (honest list)
-- The CI workflow hasn't run yet: it was written before the first push. Check the first Actions run and fix any scanner-flag differences between versions.
+- ~~CI not yet run~~: the first real run passed (821 raw → 737 unique findings).
 - Fixed versions come from the scanners and aren't independently verified.
 - The fixtures are trimmed by hand in the real report formats; the real reports have many more fields.
 
@@ -118,3 +118,38 @@ PRs created with the workflow's default `GITHUB_TOKEN` **don't trigger other wor
 ### Known limitations
 - Fixes only exact `pkg==version` pins in requirements files (no Poetry/pip-tools lockfiles yet).
 - Doesn't resolve transitive conflicts: the CI tests are what catch an incompatible bump.
+
+---
+
+## Week 4: Container self-healing
+
+### Why Copa instead of rebuilding the image?
+Rebuilding means you need the Dockerfile, the source and the build pipeline, and a rebuild can change *more* than you intended (new base layers, new app dependencies). Copa takes the Trivy report and adds a single layer with just the updated OS packages. That makes it fast, targeted, and usable on images you didn't build yourself (third-party or vendor images). The trade-off: it only fixes OS packages. Language dependencies go through the Week 3 PR flow.
+
+### Verification: "patched" isn't the same as "fixed"
+After patching, Patchwarden re-scans and passes only if:
+1. **every targeted CVE is gone**, and
+2. **no new High/Critical** appeared (a patch can pull in a newer package with its own CVEs).
+
+Real result: **287 → 0** fixable OS findings on the demo image.
+
+### Fail-safe ordering
+`scan → patch → verify → push → sign → deploy`. Each gate stops the pipeline:
+- verification fails → not signed or deployed
+- signing fails → not deployed
+- rollout fails → `kubectl rollout undo`
+
+The k8s deployment uses `maxUnavailable: 0`, so the old pod keeps serving until the patched one passes its readiness probe: zero downtime.
+
+### Why sign with cosign, and what is "keyless"?
+A signature proves this exact image came out of *this* pipeline, so a cluster admission policy can refuse anything unsigned. Keyless signing uses the workflow's GitHub OIDC identity: Sigstore issues a short-lived certificate, so there's no private key to store or leak. The workflow then runs `cosign verify`, pinned to this repo's identity.
+
+### Real-world problems hit while building (good interview stories)
+- **Copa failed with `apt-get ... exit code 100`.** The original base was Debian 11, which reached end of life (LTS ended Aug 2026), and its mirrors no longer serve updates. **Lesson: you can't patch what upstream no longer ships**, so EOL base images need a rebuild onto a supported release, not a patch. The demo moved to an old Debian 12 base.
+- **The push to GHCR was `denied`.** Package permissions for a brand-new container package didn't line up with the workflow token. Rather than depend on registry settings, the demo uses a throwaway in-job registry, which keeps it $0 and reproducible for anyone who forks it.
+- **`heal` returned success when Copa failed.** Caught on the first real run and fixed: tool stderr now surfaces in the step log, and the command exits non-zero.
+
+### Be ready to answer
+- When would you rebuild instead of patch? *(EOL base, language-level CVEs, or when the Dockerfile is yours and the CI is fast.)*
+- How would this run in production on AKS? *(Same steps: push to ACR, sign, enforce signatures with an admission controller such as Ratify/Gatekeeper or Kyverno, and roll out through GitOps, e.g. Argo CD, instead of `kubectl set image`.)*
+- Why verify by re-scanning instead of trusting Copa's exit code? *(Trust but verify: the scanner is an independent check, and it also catches newly introduced CVEs.)*

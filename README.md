@@ -4,7 +4,7 @@
 
 An AI agent that finds dependency and container vulnerabilities, triages them by real risk, fixes them automatically where policy allows, and proves each fix by re-scanning.
 
-> **Status: Weeks 1–3 of 6 done: scanning, triage agent, policy-gated fix PRs.** See the [roadmap](#roadmap).
+> **Status: Weeks 1–4 of 6 done: scanning, triage agent, policy-gated fix PRs, container self-healing.** See the [roadmap](#roadmap).
 
 ## Architecture
 
@@ -73,13 +73,27 @@ On the demo app, 1 of 5 fixes auto-merges (jinja2, a patch bump). pyyaml, reques
 3. Settings → Branches: protect `main` and require the **test** check from the `scan` workflow.
 4. Recommended: add a fine-grained token as the secret `VRA_BOT_TOKEN` (contents + pull requests: read/write, this repo only). PRs opened with the default `GITHUB_TOKEN` don't trigger other workflows, so required checks wouldn't run on them.
 
+## Results so far (real CI runs)
+
+| Run | Result |
+| --- | --- |
+| `scan` workflow, demo repo + image | **821 raw findings → 737 unique** (84 cross-scanner duplicates merged): 39 Critical, 265 High, 391 fixable |
+| `heal` workflow, demo image | **287 fixable OS CVEs → 0** after the Copa patch, verified by re-scan with no new High/Critical; signed with cosign (keyless) and rolled out to kind with zero downtime |
+
+## What works today (Week 4)
+
+- **`patchwarden heal <image>`** (`vra/heal.py`): Trivy OS scan → **Copa** patch (adds a patch layer, no Dockerfile rebuild) → re-scan and **verify** → push → **cosign** sign → `kubectl` rollout with **automatic rollback** if the rollout fails.
+- **Fail-safe ordering:** an image that fails verification is never signed; an unsigned image is never deployed.
+- **Audit log** (`vra/audit.py`): every step and outcome is recorded for the Week 6 dashboard.
+- **`heal.yml`**: the whole loop runs for $0 inside GitHub Actions, using a throwaway in-job registry, a kind cluster, BuildKit, and cosign keyless signing via GitHub OIDC.
+
 ## Quick start
 
 The CLI installs as both `patchwarden` and the short alias `vra`.
 
 ```bash
 pip install -e ".[dev]"
-pytest -q                                   # 39 tests, uses fixtures, no scanners needed
+pytest -q                                   # 50 tests, uses fixtures, no scanners needed
 
 # Full scan (needs trivy, osv-scanner, syft; docker for the image scan)
 bash scanner/run_scans.sh
@@ -103,7 +117,7 @@ vra ingest --trivy-fs tests/fixtures/trivy-fs.json \
 | 1 | Scanning, normalization, findings DB, CI | ✅ |
 | 2 | Triage agent (Claude / local model): reachability + risk scoring | ✅ |
 | 3 | Dependency remediation: fix PRs + policy gate | ✅ |
-| 4 | Container self-healing: Copa patch → re-scan → Cosign → deploy (kind/AKS) | ⏳ |
+| 4 | Container self-healing: Copa patch → re-scan → Cosign → deploy (kind/AKS) | ✅ |
 | 5 | Guardrails, prompt-injection red-team, STRIDE threat model | ⏳ |
 | 6 | Burn-down dashboard, demo video, results | ⏳ |
 
