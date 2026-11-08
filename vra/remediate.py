@@ -116,7 +116,8 @@ def apply_plan(plan: FixPlan, repo_root: str | Path = ".") -> bool:
 
 
 def pr_title(plan: FixPlan) -> str:
-    return f"fix(deps): bump {plan.package} {plan.installed} -> {plan.target_version} ({', '.join(plan.vuln_ids)})"
+    ids = plan.vuln_ids[:2] + ([f"+{len(plan.vuln_ids) - 2} more"] if len(plan.vuln_ids) > 2 else [])
+    return f"fix(deps): bump {plan.package} {plan.installed} -> {plan.target_version} ({', '.join(ids)})"
 
 
 def pr_body(plan: FixPlan) -> str:
@@ -126,7 +127,7 @@ def pr_body(plan: FixPlan) -> str:
 | | |
 |---|---|
 | Package | `{plan.package}` `{plan.installed}` → `{plan.target_version}` |
-| Fixes | {', '.join(plan.vuln_ids)} |
+| Fixes | {len(plan.vuln_ids)} advisories: {', '.join(plan.vuln_ids)} |
 | Manifest | `{plan.manifest}` |
 | Risk score | {plan.risk_score}/100 ({plan.recommendation}, confidence {plan.confidence:.2f}) |
 | Policy decision | **{plan.gate.decision.value}** ({plan.gate.change_type}) |
