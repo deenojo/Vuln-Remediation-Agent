@@ -190,7 +190,8 @@ def cmd_heal(args: argparse.Namespace) -> int:
                  patched=res.patched_image, fixed=len(v.fixed) if v else 0,
                  still_present=v.still_present if v else [], introduced=v.introduced if v else [],
                  signed=res.signed, deployed=res.deployed, rolled_back=res.rolled_back, steps=res.steps)
-    return 0 if (res.ok or (v and not v.fixed and not v.still_present)) else 1
+    nothing_to_do = any("nothing fixable" in st for st in res.steps)
+    return 0 if (res.ok or nothing_to_do) else 1
 
 
 def subprocess_push(branch: str, repo_root: str) -> None:

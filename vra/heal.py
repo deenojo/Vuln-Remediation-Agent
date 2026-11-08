@@ -97,8 +97,11 @@ class HealResult:
 
 def _run(runner: Runner, cmd: list[str], result: HealResult, step: str) -> subprocess.CompletedProcess:
     proc = runner(cmd)
-    status = "ok" if proc.returncode == 0 else f"exit {proc.returncode}"
-    result.steps.append(f"{step}: {status}")
+    if proc.returncode == 0:
+        result.steps.append(f"{step}: ok")
+    else:
+        err = (proc.stderr or proc.stdout or "").strip().splitlines()[-3:]
+        result.steps.append(f"{step}: exit {proc.returncode}" + (f" | {' / '.join(err)[:400]}" if err else ""))
     return proc
 
 
