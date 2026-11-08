@@ -154,6 +154,8 @@ def commit_on_branch(plan: FixPlan, repo_root: str | Path = ".", base: str = "ma
         _git("add", plan.manifest, cwd=repo_root)
         _git("commit", "-m", pr_title(plan), cwd=repo_root)
     _git("checkout", base, cwd=repo_root)
+    if not changed:  # e.g. a transitive dependency with no pin to bump: don't leave an empty branch
+        _git("branch", "-D", plan.branch, cwd=repo_root)
     return changed
 
 

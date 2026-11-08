@@ -115,6 +115,13 @@ PRs created with the workflow's default `GITHUB_TOKEN` **don't trigger other wor
 - What stops a bad auto-merge from reaching production? *(Required CI checks, then Week 4's verification and auto-rollback.)*
 - How would you scale this to 500 repos? *(Run the same gate centrally, keep policy per org with per-repo overrides, and batch PRs with rate limits.)*
 
+### What happened on real data (first live run)
+Running the remediation on the real nightly scan opened **6 PRs (#1–#6), and all 6 went to human review. None qualified for auto-merge.** That's the policy working, not failing:
+- The pins are about six years old, so the version that fixes *all* advisories is usually a **major** bump (flask 0.12 → 3.1, jinja2 2.10 → 3.1, pillow 8 → 13), and majors always need a human.
+- **pyyaml 5.3.1 → 5.4** is only a minor bump, but it fixes the reachable Critical, so it's the one to review and merge first.
+- **3 fixes had no file to edit** (certifi, urllib3, idna). osv-scanner v2 resolves *transitive* dependencies, which aren't pinned in `requirements.txt`. They get fixed by bumping their parent (requests). The code now cleans up instead of leaving empty branches.
+- Next improvement: target the **smallest** version that fixes the urgent advisories instead of the newest one that fixes all of them. That turns many majors into reviewable minors.
+
 ### Known limitations
 - Fixes only exact `pkg==version` pins in requirements files (no Poetry/pip-tools lockfiles yet).
 - Doesn't resolve transitive conflicts: the CI tests are what catch an incompatible bump.
