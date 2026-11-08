@@ -1,6 +1,5 @@
-# Older (2023) Debian 12 base on purpose, so the image scan finds OS-level CVEs for Copa to patch.
-# Debian 11 is past end of life, so its package mirrors no longer serve fixes Copa could apply.
-FROM python:3.9.18-slim-bookworm
+# Platform upgrade: Python 3.9 (end of life Oct 2025) -> 3.12 on current Debian 12.
+FROM python:3.12-slim-bookworm
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
