@@ -60,7 +60,7 @@ vra triage --backend ollama --code-root targets/demo-vulnerable-app -v      # lo
 vra eval --labels eval/labels.csv
 ```
 
-**Baseline result:** the heuristic agrees with the hand labels on 3 of 7 demo findings (43%). It over-escalates anything imported. The LLM pass is meant to fix exactly that, and the number to report is the change in agreement.
+**Result:** the heuristic agrees with the hand labels on 3 of 7 demo findings (43%); it over-escalates anything imported. **With Claude (Haiku) it's 5 of 7 (71%)**: it correctly lowered requests (no auth headers sent) and jinja2 (no sandboxed templates). The two remaining misses are useful too: pillow stays at `fix_soon` because the guardrails cap how far the model can lower an evidence-based score, which is the safety trade-off working as designed.
 
 ## What works today (Week 3)
 
@@ -84,6 +84,7 @@ On the demo app, 1 of 5 fixes auto-merges (jinja2, a patch bump). pyyaml, reques
 | `scan` workflow, demo repo + image | **977 raw findings → 793 unique** (184 cross-scanner duplicates merged, after fixing two dedupe bugs that only showed up on real data) |
 | `remediate` v2, smallest safe upgrade | **4 fix PRs (#7–#10), all passing CI**. Each picks the smallest compatible release (Requires-Python + co-pinned deps checked against PyPI metadata); werkzeug is reported **blocked** instead of opened as a broken PR. pyyaml (#1) merged: first resolved Critical |
 | `remediate` v1 on the real scan | **6 fix PRs opened (#1–#6), all routed to human review** by the policy gate. CI then proved why: 5 of the 6 newest-version bumps **fail to build** (dependency conflicts, Python-version floors). Only pyyaml 5.3.1 → 5.4, the fix for the reachable Critical, passes |
+| `live-eval` with real Claude (Haiku) | **Triage agreement with hand labels: 71% (5/7) vs 43% for the heuristic baseline.** Red team against the real model: **fooled 0/9, landed 0/9** |
 | `heal` workflow, demo image | **287 fixable OS CVEs → 0** after the Copa patch, verified by re-scan with no new High/Critical; signed with cosign (keyless) and rolled out to kind with zero downtime |
 
 ## What works today (Week 6)
