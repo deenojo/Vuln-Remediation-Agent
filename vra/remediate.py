@@ -15,6 +15,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
+from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
 from vra.models import Finding
@@ -41,6 +42,9 @@ class FixPlan:
     rationale: str
     gate: GateResult
     finding_keys: list[str] = field(default_factory=list)
+    remaining: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    verified: bool = False
 
     @property
     def branch(self) -> str:
@@ -66,37 +70,66 @@ def check_path(manifest: str) -> None:
         raise ForbiddenPathError(f"remediation may only edit requirements files, not {manifest}")
 
 
-def build_plans(findings: list[Finding], triage: dict, policy: dict) -> list[FixPlan]:
-    """Group fixable PyPI repo findings by (manifest, package) and run each through the gate."""
+def build_plans(
+    findings: list[Finding],
+    triage: dict,
+    policy: dict,
+    *,
+    repo_root: str | Path = ".",
+    fetch=None,
+) -> list[FixPlan]:
+    """Group fixable PyPI repo findings by (manifest, package), pick the smallest safe upgrade
+    (see vra/resolve.py), and run each plan through the policy gate."""
+    from vra.resolve import choose, manifest_pins, runtime_python
+
     groups: dict[tuple[str, str], list[Finding]] = {}
     for f in findings:
         if f.target_type == "repo" and f.ecosystem == "PyPI" and f.fixed_version:
             groups.setdefault((f.target, f.package.lower()), []).append(f)
     plans = []
+    blocked: list = []
     for (manifest, _), group in sorted(groups.items()):
         group.sort(key=lambda f: len(f.installed_version))  # prefer the spelling used in the file
-        target = max((f.fixed_version for f in group), key=_vkey)  # one bump fixes all
-        tri = [triage[f.dedupe_key] for f in group if f.dedupe_key in triage]
-        if not tri:
+        triaged = [f for f in group if f.dedupe_key in triage]
+        if not triaged:
             continue  # never act on untriaged findings
-        worst = max(tri, key=lambda t: t["risk_score"])
-        conf = min(t["confidence"] for t in tri)
+        pins = manifest_pins(manifest, repo_root)
+        if pins and canonicalize_name(group[0].package) not in pins:
+            continue  # transitive dependency: nothing to edit here; fixed by bumping its parent
+        choice = choose(
+            group[0].package, group[0].installed_version,
+            [(f.vuln_id, f.fixed_version, triage[f.dedupe_key]["recommendation"]) for f in triaged],
+            py=runtime_python(manifest, repo_root), pins=pins, fetch=fetch,
+        )
+        if choice and choice.blocked:
+            blocked.append((manifest, group[0].package, choice))
+            continue
+        if not choice or not choice.fixes:
+            continue
+        fixed_tri = [triage[f.dedupe_key] for f in triaged if f.vuln_id in choice.fixes]
+        worst = max(fixed_tri, key=lambda t: t["risk_score"])
+        conf = min(t["confidence"] for t in fixed_tri)
         gate = evaluate(
-            package=group[0].package, installed=group[0].installed_version, fixed=target,
+            package=group[0].package, installed=group[0].installed_version, fixed=choice.version,
             ecosystem="PyPI", recommendation=worst["recommendation"],
             risk_score=worst["risk_score"], confidence=conf, policy=policy,
         )
+        if fetch and not choice.verified:
+            gate.decision = Decision.HUMAN_REVIEW if gate.decision is Decision.AUTO_MERGE else gate.decision
+            gate.reasons.append("compatibility not verified against package metadata")
         if gate.decision is Decision.SKIP:
             continue
         plans.append(
             FixPlan(
                 manifest=manifest, package=group[0].package, installed=group[0].installed_version,
-                target_version=target, vuln_ids=sorted({f.vuln_id for f in group}),
+                target_version=choice.version, vuln_ids=choice.fixes,
                 risk_score=worst["risk_score"], recommendation=worst["recommendation"],
                 confidence=conf, rationale=worst["rationale"], gate=gate,
-                finding_keys=[f.dedupe_key for f in group],
+                finding_keys=[f.dedupe_key for f in triaged if f.vuln_id in choice.fixes],
+                remaining=choice.remaining, notes=choice.notes, verified=choice.verified,
             )
         )
+    build_plans.blocked = blocked  # surfaced by the CLI; no PR is opened for a known-broken upgrade
     return sorted(plans, key=lambda p: -p.risk_score)
 
 
@@ -132,6 +165,9 @@ def pr_body(plan: FixPlan) -> str:
 | Risk score | {plan.risk_score}/100 ({plan.recommendation}, confidence {plan.confidence:.2f}) |
 | Policy decision | **{plan.gate.decision.value}** ({plan.gate.change_type}) |
 
+### Smallest safe upgrade
+{_resolution(plan)}
+
 ### Why (triage)
 {plan.rationale}
 
@@ -141,6 +177,16 @@ def pr_body(plan: FixPlan) -> str:
 ---
 *Opened by Patchwarden. Merges only after required checks pass. The agent recommends; `policy/policy.yaml` decides.*
 """
+
+
+def _resolution(plan: FixPlan) -> str:
+    lines = [f"- Chose **{plan.target_version}**: the smallest release that fixes the urgent advisories"
+             + (" and passed compatibility checks (Requires-Python, pinned dependencies)." if plan.verified
+                else ". Compatibility could not be verified automatically.")]
+    lines += [f"- {n}" for n in plan.notes]
+    if plan.remaining:
+        lines.append(f"- **Not fixed by this PR** (need a larger upgrade, separate decision): {', '.join(plan.remaining)}")
+    return "\n".join(lines)
 
 
 def _git(*args: str, cwd: str | Path = ".") -> str:

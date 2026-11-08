@@ -8,16 +8,17 @@ from vra.models import Finding, Severity, canonical_id
 
 
 def _fixed_version(vuln: dict[str, Any], package: str) -> str | None:
-    """First 'fixed' event in the affected range for this package, if any."""
+    """All 'fixed' versions across the advisory's ranges (backports included), comma-separated."""
+    fixes: list[str] = []
     for affected in vuln.get("affected") or []:
         pkg = (affected.get("package") or {}).get("name")
         if pkg and pkg.lower() != package.lower():
             continue
         for rng in affected.get("ranges") or []:
             for event in rng.get("events") or []:
-                if "fixed" in event:
-                    return event["fixed"]
-    return None
+                if "fixed" in event and event["fixed"] not in fixes:
+                    fixes.append(event["fixed"])
+    return ", ".join(fixes) or None
 
 
 def _group_score(package_entry: dict[str, Any], vuln_id: str) -> float | None:

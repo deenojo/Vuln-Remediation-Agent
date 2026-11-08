@@ -98,7 +98,7 @@ def test_cli_end_to_end_plan_and_commit(tmp_path, capsys):
     main(["--db", db, "triage", "--code-root", str(repo / "targets" / "demo-vulnerable-app")])
     capsys.readouterr()
 
-    main(["--db", db, "remediate", "--policy", str(repo / "policy" / "policy.yaml")])
+    main(["--db", db, "remediate", "--offline", "--repo-root", str(repo), "--policy", str(repo / "policy" / "policy.yaml")])
     out = capsys.readouterr().out
     assert "[human_review] fix(deps): bump flask" in out          # always-review package
     assert "[auto_merge  ] fix(deps): bump jinja2 2.10 -> 2.10.1" in out  # patch bump
@@ -106,7 +106,7 @@ def test_cli_end_to_end_plan_and_commit(tmp_path, capsys):
 
     subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
-    main(["--db", db, "remediate", "--mode", "commit", "--repo-root", str(repo),
+    main(["--db", db, "remediate", "--mode", "commit", "--offline", "--repo-root", str(repo),
           "--policy", str(repo / "policy" / "policy.yaml")])
     branches = subprocess.run(["git", "branch"], cwd=repo, capture_output=True, text=True).stdout
     assert "vra/fix-jinja2-2.10.1" in branches

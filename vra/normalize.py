@@ -18,6 +18,16 @@ def normalize_target(target: str, root: str | None = None) -> str:
     return t[2:] if t.startswith("./") else t
 
 
+def merge_fix_lists(a: str | None, b: str | None) -> str | None:
+    """Union of comma-separated fixed-version lists from different scanners."""
+    out: list[str] = []
+    for part in ",".join(x for x in (a, b) if x).split(","):
+        v = part.strip()
+        if v and v not in out:
+            out.append(v)
+    return ", ".join(out) or None
+
+
 def merge_findings(findings: list[Finding], root: str | None = None) -> list[Finding]:
     """Collapse duplicates (same vuln, package, version, target) reported by different scanners.
 
@@ -37,7 +47,7 @@ def merge_findings(findings: list[Finding], root: str | None = None) -> list[Fin
             m.severity = f.severity
         if f.cvss is not None and (m.cvss is None or f.cvss > m.cvss):
             m.cvss = f.cvss
-        m.fixed_version = m.fixed_version or f.fixed_version
+        m.fixed_version = merge_fix_lists(m.fixed_version, f.fixed_version)
         m.title = m.title or f.title
         m.url = m.url or f.url
         m.sources = sorted(set(m.sources) | set(f.sources))

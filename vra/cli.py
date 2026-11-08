@@ -136,15 +136,26 @@ def cmd_remediate(args: argparse.Namespace) -> int:
     )
 
     store = Store(args.db)
-    plans = build_plans(store.open_finding_models(), store.latest_triage(), load_policy(args.policy))
+    from vra.resolve import pypi_fetcher
+
+    plans = build_plans(
+        store.open_finding_models(), store.latest_triage(), load_policy(args.policy),
+        repo_root=args.repo_root, fetch=None if args.offline else pypi_fetcher,
+    )
+    for manifest, pkg, choice in getattr(build_plans, "blocked", []):
+        print(f"[blocked     ] {pkg} in {manifest}: no compatible fix ({len(choice.remaining)} advisories)")
+        for n in choice.notes[-3:]:
+            print(f"      - {n}")
     if not plans:
         print("Nothing to remediate (no fixable, triaged dependency findings).")
         return 0
     repo, token = github_context()
     for plan in plans:
         print(f"[{plan.gate.decision.value:<12}] {pr_title(plan)}")
-        for r in plan.gate.reasons:
+        for r in plan.gate.reasons + plan.notes:
             print(f"      - {r}")
+        if plan.remaining:
+            print(f"      - left for a larger upgrade: {len(plan.remaining)} advisories")
         if args.show_body:
             print(pr_body(plan))
         if args.mode == "plan":
@@ -269,6 +280,7 @@ def main(argv: list[str] | None = None) -> int:
     rm.add_argument("--repo-root", default=".")
     rm.add_argument("--base", default="main")
     rm.add_argument("--show-body", action="store_true")
+    rm.add_argument("--offline", action="store_true", help="Skip PyPI compatibility checks")
     rm.set_defaults(func=cmd_remediate)
 
     hl = sub.add_parser("heal", help="Patch OS CVEs in an image (Copa), verify, sign, deploy")
