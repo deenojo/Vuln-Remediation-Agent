@@ -1,0 +1,27 @@
+name: tools-lock
+
+# Prints the exact release assets and SHA256 hashes for the pinned scanner versions,
+# so they can be recorded in scanner/tools.lock (trust-on-first-use, then verified on every run).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hashes:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - run: |
+          set -e
+          mkdir -p a && cd a
+          gh release download -R aquasecurity/trivy v0.76.2 --pattern 'trivy_*_Linux-64bit.tar.gz' --pattern '*checksums.txt'
+          gh release download -R anchore/syft v1.57.0 --pattern 'syft_*_linux_amd64.tar.gz' --pattern '*checksums.txt'
+          gh release download -R google/osv-scanner v2.7.0 --pattern 'osv-scanner_linux_amd64'
+          gh release download -R project-copacetic/copacetic v0.15.0 --pattern '*linux_amd64.tar.gz'
+          echo "=== assets"
+          for f in *; do echo "LOCK $(sha256sum "$f")"; done
+          echo "=== publisher checksums"
+          grep -h -E 'Linux-64bit.tar.gz|linux_amd64.tar.gz' *checksums.txt || true
