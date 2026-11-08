@@ -1,0 +1,45 @@
+{
+  "_note": "Test fixture in Trivy's JSON format, trimmed by hand. Not live scan output.",
+  "SchemaVersion": 2,
+  "ArtifactName": "targets/demo-vulnerable-app",
+  "ArtifactType": "filesystem",
+  "Results": [
+    {
+      "Target": "targets/demo-vulnerable-app/requirements.txt",
+      "Class": "lang-pkgs",
+      "Type": "pip",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2018-18074",
+          "PkgName": "requests",
+          "InstalledVersion": "2.19.1",
+          "FixedVersion": "2.20.0",
+          "Severity": "HIGH",
+          "Title": "requests: Redirect from HTTPS to HTTP does not remove Authorization header",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2018-18074",
+          "CVSS": {"nvd": {"V3Score": 7.5}}
+        },
+        {
+          "VulnerabilityID": "CVE-2020-14343",
+          "PkgName": "pyyaml",
+          "InstalledVersion": "5.3.1",
+          "FixedVersion": "5.4",
+          "Severity": "CRITICAL",
+          "Title": "PyYAML: incomplete fix for CVE-2020-1747",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2020-14343",
+          "CVSS": {"nvd": {"V3Score": 9.8}}
+        },
+        {
+          "VulnerabilityID": "CVE-2019-10906",
+          "PkgName": "jinja2",
+          "InstalledVersion": "2.10",
+          "FixedVersion": "2.10.1",
+          "Severity": "HIGH",
+          "Title": "python-jinja2: str.format_map allows sandbox escape",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2019-10906",
+          "CVSS": {"nvd": {"V3Score": 8.6}}
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "_note": "Test fixture in osv-scanner's JSON format, trimmed by hand. Not live scan output.",
+  "results": [
+    {
+      "source": {"path": "targets/demo-vulnerable-app/requirements.txt", "type": "lockfile"},
+      "packages": [
+        {
+          "package": {"name": "requests", "version": "2.19.1", "ecosystem": "PyPI"},
+          "vulnerabilities": [
+            {
+              "id": "GHSA-x84v-xcm2-53pg",
+              "aliases": ["CVE-2018-18074"],
+              "summary": "Insufficiently Protected Credentials in Requests",
+              "affected": [
+                {
+                  "package": {"name": "requests", "ecosystem": "PyPI"},
+                  "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "2.20.0"}]}]
+                }
+              ],
+              "database_specific": {"severity": "HIGH"}
+            }
+          ],
+          "groups": [{"ids": ["GHSA-x84v-xcm2-53pg"], "max_severity": "7.5"}]
+        },
+        {
+          "package": {"name": "flask", "version": "0.12.2", "ecosystem": "PyPI"},
+          "vulnerabilities": [
+            {
+              "id": "GHSA-562c-5r94-xh97",
+              "aliases": ["CVE-2018-1000656"],
+              "summary": "Flask is vulnerable to Denial of Service via incorrect encoding of JSON data",
+              "affected": [
+                {
+                  "package": {"name": "flask", "ecosystem": "PyPI"},
+                  "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "0.12.3"}]}]
+                }
+              ],
+              "database_specific": {"severity": "HIGH"}
+            }
+          ],
+          "groups": [{"ids": ["GHSA-562c-5r94-xh97"], "max_severity": "7.5"}]
+        }
+      ]
+    }
+  ]
+}

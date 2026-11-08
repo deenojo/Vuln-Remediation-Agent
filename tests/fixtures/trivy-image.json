@@ -1,0 +1,32 @@
+{
+  "_note": "Test fixture in Trivy's JSON format for an image scan, trimmed by hand. Not live scan output.",
+  "SchemaVersion": 2,
+  "ArtifactName": "demo-vulnerable-app:latest",
+  "ArtifactType": "container_image",
+  "Results": [
+    {
+      "Target": "demo-vulnerable-app:latest (debian 11.6)",
+      "Class": "os-pkgs",
+      "Type": "debian",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2023-0286",
+          "PkgName": "openssl",
+          "InstalledVersion": "1.1.1n-0+deb11u3",
+          "FixedVersion": "1.1.1n-0+deb11u4",
+          "Severity": "HIGH",
+          "Title": "openssl: X.400 address type confusion in X.509 GeneralName",
+          "CVSS": {"nvd": {"V3Score": 7.4}}
+        },
+        {
+          "VulnerabilityID": "CVE-2022-0000-DEMO",
+          "PkgName": "libexample",
+          "InstalledVersion": "1.0",
+          "FixedVersion": "",
+          "Severity": "LOW",
+          "Title": "Synthetic unfixed finding used to test 'no fix available' handling"
+        }
+      ]
+    }
+  ]
+}
