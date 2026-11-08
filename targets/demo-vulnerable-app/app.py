@@ -1,7 +1,7 @@
-"""Tiny demo service with deliberately outdated dependencies.
+"""Demo service 1, after its platform upgrade (Python 3.12, Flask 3).
 
-Which packages are actually *used* matters: the Week 2 triage agent checks reachability,
-so pyyaml/requests (used below) should rank higher than pillow (installed, never imported).
+The upgrade fixed the code, not just the versions: yaml.safe_load replaces yaml.load,
+which closes the unsafe-deserialization path behind the old PyYAML advisory.
 """
 
 import os
@@ -15,8 +15,8 @@ app = Flask(__name__)
 
 @app.route("/config", methods=["POST"])
 def load_config():
-    # yaml.load without SafeLoader on user input: the reachable path for the PyYAML CVE.
-    data = yaml.load(request.data)  # noqa: S506 (intentionally unsafe for the demo)
+    # safe_load only builds plain data types (no arbitrary Python objects from user input).
+    data = yaml.safe_load(request.data)
     return jsonify(data)
 
 
