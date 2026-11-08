@@ -1,0 +1,63 @@
+name: remediate
+
+# Scan -> triage -> open one fix PR per vulnerable package, labelled by the policy gate.
+# Manual for now; switch on the schedule once the first runs look right.
+on:
+  workflow_dispatch:
+    inputs:
+      backend:
+        description: "Triage backend"
+        default: heuristic
+        type: choice
+        options: [heuristic, anthropic]
+  # schedule:
+  #   - cron: "37 7 * * 1"   # weekly
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.VRA_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,llm]"
+      - run: pytest -q
+
+      - name: Install scanners
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sudo sh -s -- -b /usr/local/bin
+          sudo curl -sSfL -o /usr/local/bin/osv-scanner \
+            https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64
+          sudo chmod +x /usr/local/bin/osv-scanner
+
+      - name: Scan
+        run: SKIP_IMAGE=1 bash scanner/run_scans.sh
+
+      - name: Triage
+        run: vra triage --backend "${{ inputs.backend || 'heuristic' }}" --code-root targets/demo-vulnerable-app -v
+
+      - name: Open fix PRs
+        run: |
+          git config user.name  "vra-bot"
+          git config user.email "vra-bot@users.noreply.github.com"
+          vra remediate --mode pr
+
+      - name: Enable auto-merge on PRs the gate approved
+        env:
+          GH_TOKEN: ${{ secrets.VRA_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          for pr in $(gh pr list --label "vra:auto-merge" --state open --json number -q '.[].number'); do
+            gh pr merge "$pr" --auto --squash || echo "auto-merge not enabled for #$pr (check repo settings)"
+          done

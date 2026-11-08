@@ -5,6 +5,7 @@
   vra summary
   vra triage --backend heuristic|anthropic|ollama --code-root targets/demo-vulnerable-app
   vra eval --labels eval/labels.csv
+  vra remediate --mode plan|commit|pr
 """
 
 from __future__ import annotations
@@ -123,6 +124,44 @@ def cmd_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_remediate(args: argparse.Namespace) -> int:
+    from vra.policy import load_policy
+    from vra.remediate import (
+        build_plans, commit_on_branch, github_context, open_pr, pr_body, pr_title,
+    )
+
+    store = Store(args.db)
+    plans = build_plans(store.open_finding_models(), store.latest_triage(), load_policy(args.policy))
+    if not plans:
+        print("Nothing to remediate (no fixable, triaged dependency findings).")
+        return 0
+    repo, token = github_context()
+    for plan in plans:
+        print(f"[{plan.gate.decision.value:<12}] {pr_title(plan)}")
+        for r in plan.gate.reasons:
+            print(f"      - {r}")
+        if args.show_body:
+            print(pr_body(plan))
+        if args.mode == "plan":
+            continue
+        changed = commit_on_branch(plan, args.repo_root, args.base)
+        print(f"      branch {plan.branch}: {'committed' if changed else 'no change (pin not found)'}")
+        if args.mode == "pr" and changed:
+            if not (repo and token):
+                print("      skipped PR: set GITHUB_REPOSITORY and GITHUB_TOKEN")
+                continue
+            subprocess_push(plan.branch, args.repo_root)
+            pr = open_pr(plan, repo, token, args.base)
+            print(f"      opened {pr.get('html_url')} [{plan.label}]")
+    return 0
+
+
+def subprocess_push(branch: str, repo_root: str) -> None:
+    import subprocess
+
+    subprocess.run(["git", "push", "-f", "origin", branch], cwd=repo_root, check=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="vra", description=__doc__)
     parser.add_argument("--db", default="data/findings.db")
@@ -155,6 +194,15 @@ def main(argv: list[str] | None = None) -> int:
     ev = sub.add_parser("eval", help="Measure triage agreement with hand labels")
     ev.add_argument("--labels", required=True)
     ev.set_defaults(func=cmd_eval)
+
+    rm = sub.add_parser("remediate", help="Plan / commit / open PRs for fixes, gated by policy")
+    rm.add_argument("--mode", choices=["plan", "commit", "pr"], default="plan",
+                    help="plan: print only; commit: local branches; pr: push + open PRs")
+    rm.add_argument("--policy", default="policy/policy.yaml")
+    rm.add_argument("--repo-root", default=".")
+    rm.add_argument("--base", default="main")
+    rm.add_argument("--show-body", action="store_true")
+    rm.set_defaults(func=cmd_remediate)
 
     args = parser.parse_args(argv)
     return args.func(args)

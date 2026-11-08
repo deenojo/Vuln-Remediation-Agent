@@ -2,7 +2,7 @@
 
 An AI agent that finds dependency and container vulnerabilities, triages them by real risk, fixes them automatically where policy allows, and proves each fix by re-scanning.
 
-> **Status: Weeks 1–2 of 6 done: scanning, findings database, triage agent.** See the [roadmap](#roadmap).
+> **Status: Weeks 1–3 of 6 done: scanning, triage agent, policy-gated fix PRs.** See the [roadmap](#roadmap).
 
 ## Architecture
 
@@ -56,11 +56,26 @@ vra eval --labels eval/labels.csv
 
 **Baseline result:** the heuristic agrees with the hand labels on 3 of 7 demo findings (43%). It over-escalates anything imported. The LLM pass is meant to fix exactly that, and the number to report is the change in agreement.
 
+## What works today (Week 3)
+
+- **Policy gate** (`vra/policy.py` + `policy/policy.yaml`): plain code decides `auto_merge`, `human_review` or `skip`, and records every reason. It looks at the bump type (patch/minor/major/OS patch), risk score, confidence, an always-review package list, and a kill switch (`auto_merge_enabled: false` or `VRA_AUTOMERGE_DISABLED=1`).
+- **Remediation** (`vra/remediate.py`): one PR per package, rewriting only the pin and keeping comments. The PR body carries the triage rationale and every policy reason. It is **hard-blocked** from editing anything but `requirements*.txt`, so it can never touch `policy/` or `.github/`.
+- **Modes:** `vra remediate --mode plan` (print), `commit` (local branches), `pr` (push + open labelled PRs).
+- **Workflow** `.github/workflows/remediate.yml`: scan → triage → PRs → enable auto-merge on `vra:auto-merge` PRs. Merges still wait for required checks.
+
+On the demo app, 1 of 5 fixes auto-merges (jinja2, a patch bump). pyyaml, requests and pillow are minor bumps and flask is on the always-review list, so those go to review.
+
+### One-time GitHub setup for PRs and auto-merge
+1. Settings → General → Pull Requests: enable **Allow auto-merge**.
+2. Settings → Actions → General → Workflow permissions: **Read and write**, and tick **Allow GitHub Actions to create and approve pull requests**.
+3. Settings → Branches: protect `main` and require the **test** check from the `scan` workflow.
+4. Recommended: add a fine-grained token as the secret `VRA_BOT_TOKEN` (contents + pull requests: read/write, this repo only). PRs opened with the default `GITHUB_TOKEN` don't trigger other workflows, so required checks wouldn't run on them.
+
 ## Quick start
 
 ```bash
 pip install -e ".[dev]"
-pytest -q                                   # 24 tests, uses fixtures, no scanners needed
+pytest -q                                   # 39 tests, uses fixtures, no scanners needed
 
 # Full scan (needs trivy, osv-scanner, syft; docker for the image scan)
 bash scanner/run_scans.sh
@@ -83,7 +98,7 @@ vra ingest --trivy-fs tests/fixtures/trivy-fs.json \
 | --- | --- | --- |
 | 1 | Scanning, normalization, findings DB, CI | ✅ |
 | 2 | Triage agent (Claude / local model): reachability + risk scoring | ✅ |
-| 3 | Dependency remediation: fix PRs + policy gate | ⏳ |
+| 3 | Dependency remediation: fix PRs + policy gate | ✅ |
 | 4 | Container self-healing: Copa patch → re-scan → Cosign → deploy (kind/AKS) | ⏳ |
 | 5 | Guardrails, prompt-injection red-team, STRIDE threat model | ⏳ |
 | 6 | Burn-down dashboard, demo video, results | ⏳ |

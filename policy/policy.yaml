@@ -1,0 +1,34 @@
+# Remediation policy: the deterministic gate between the triage agent and any change.
+# The agent can only *recommend*. This file decides. Remediation PRs are forbidden from
+# editing this file or anything under .github/ (enforced in vra/remediate.py).
+
+# Kill switch: set to false (or set env VRA_AUTOMERGE_DISABLED=1) to send everything to human review.
+auto_merge_enabled: true
+
+# Never auto-merge if triage confidence is below this.
+min_confidence_for_auto_merge: 0.5   # heuristic triage reports 0.5
+
+# Which version bumps may auto-merge, and the minimum triage risk score that justifies it.
+auto_merge:
+  patch:
+    allowed: true
+    min_risk_score: 30
+  minor:
+    allowed: false     # human review: minor releases can change behavior
+  major:
+    allowed: false     # always human review
+  os_patch:            # OS package fixes applied by Copa (Week 4)
+    allowed: true
+    min_risk_score: 30
+
+# Recommendations that may never auto-merge regardless of the rules above.
+never_auto_merge_recommendations:
+  - monitor
+  - no_fix_available
+
+# Packages that always need a human (e.g. auth, crypto, the web framework itself).
+always_review_packages:
+  - flask
+  - django
+  - cryptography
+  - pyjwt

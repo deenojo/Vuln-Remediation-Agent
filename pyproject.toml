@@ -3,10 +3,11 @@ name = "vuln-remediation-agent"
 version = "0.1.0"
 description = "AI agent that triages and auto-remediates dependency and container vulnerabilities end to end."
 requires-python = ">=3.11"
-dependencies = ["pydantic>=2.5"]
+dependencies = ["pydantic>=2.5", "pyyaml>=6", "packaging>=23"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+llm = ["anthropic>=0.40"]
 
 [project.scripts]
 vra = "vra.cli:main"
