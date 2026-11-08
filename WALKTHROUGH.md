@@ -153,3 +153,29 @@ A signature proves this exact image came out of *this* pipeline, so a cluster ad
 - When would you rebuild instead of patch? *(EOL base, language-level CVEs, or when the Dockerfile is yours and the CI is fast.)*
 - How would this run in production on AKS? *(Same steps: push to ACR, sign, enforce signatures with an admission controller such as Ratify/Gatekeeper or Kyverno, and roll out through GitOps, e.g. Argo CD, instead of `kubectl set image`.)*
 - Why verify by re-scanning instead of trusting Copa's exit code? *(Trust but verify: the scanner is an independent check, and it also catches newly introduced CVEs.)*
+
+---
+
+## Week 5: Guardrails, red team, threat model
+
+### "Model fooled" vs "attack landed"
+Most prompt-injection demos ask "can I trick the model?" The answer is almost always eventually yes. The better question is: **when the model is tricked, does it matter?** The red-team harness measures both:
+- **model fooled:** the raw model answer moved toward the attacker's goal
+- **attack landed:** the attacker's goal survived into the final decision
+
+With the `compromised` backend (a model that always obeys the attacker), the first number is 100% by construction, so the second number measures the guardrails alone: **0 of 8 safety-critical attacks land.** That's the defense-in-depth argument in one table.
+
+### The guardrail that mattered most: bounded influence
+Version 1 only had a floor for reachable Criticals. The red team showed the model could still push an unreachable LOW finding to "fix_now" (nuisance), or talk a reachable HIGH down to "monitor" (dangerous). The fix:
+- the model's score is clamped to **baseline ± 40**, where the baseline comes from evidence (severity, CVSS, reachability), not language;
+- the recommendation is **recomputed from the final score**, so model prose can't contradict the number.
+
+So the model can *refine* a judgment ("imported, but only on an admin-only path → lower") but can't *invert* it.
+
+### The cloud baseline and why there are skips
+The Terraform encodes the controls you'd expect in a regulated environment (useful context from banking work): private API server, Entra ID RBAC, no local admin, network policy, encrypted ephemeral disks, Defender, managed identities instead of passwords, and a deny-by-default Key Vault. The controls that aren't met (geo-replication, quarantine, private endpoints, paid SLA) all need Premium SKUs, and each is documented inline with `#checkov:skip=ID:reason`. **A justified, visible exception beats a silent one**, and that's how an auditor wants to see it.
+
+### Be ready to answer
+- Isn't ±40 arbitrary? *(Yes. It's a tunable policy parameter, chosen so no model output can move a finding across more than ~1.5 recommendation buckets. In production you'd tune it against labeled data and the red-team "fooled" rate.)*
+- What's your top residual risk? *(Tool supply chain: scanner installs aren't checksum-pinned yet. It's listed in the threat model with the fix.)*
+- How does this map to OWASP LLM Top 10? *(LLM01 prompt injection and LLM06 excessive agency are the primary risks; see the mapping table in THREAT_MODEL.md.)*

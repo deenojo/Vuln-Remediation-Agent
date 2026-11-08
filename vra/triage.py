@@ -135,18 +135,34 @@ def _extract_json(text: str) -> dict:
     return json.loads(match.group(0))
 
 
-def apply_guardrails(answer: _LLMAnswer, f: Finding, reach: reachability.Reachability) -> _LLMAnswer:
-    """Deterministic limits the model can't argue its way past."""
+MAX_MODEL_SHIFT = 40  # the model may move the baseline score at most this far, either way
+
+
+def _leaks_prompt(text: str) -> bool:
+    lines = [ln.strip() for ln in SYSTEM_PROMPT.splitlines() if len(ln.strip()) > 30]
+    low = (text or "").lower()
+    return any(ln.lower()[:40] in low for ln in lines)
+
+
+def apply_guardrails(
+    answer: _LLMAnswer, f: Finding, reach: reachability.Reachability, baseline: TriageResult
+) -> _LLMAnswer:
+    """Deterministic limits the model can't argue its way past.
+
+    1. Bounded influence: the score can move at most MAX_MODEL_SHIFT from the evidence-based baseline.
+    2. Safety floor: a reachable Critical never scores below 70.
+    3. The recommendation is derived from the final score, so model text can't contradict it.
+    4. The model can't invent (or erase) a fix: fix availability comes from scanner data only.
+    5. The rationale is dropped if it echoes the system prompt.
+    """
     a = answer.model_copy()
-    if not f.fixable:
-        a.recommendation = Recommendation.NO_FIX_AVAILABLE
-    elif a.recommendation is Recommendation.NO_FIX_AVAILABLE:
-        a.recommendation = _bucket(a.risk_score, True)
-    # Safety floor: a reachable Critical can't be talked down to "monitor".
-    if f.severity is Severity.CRITICAL and reach.status == "imported" and a.risk_score < 70:
-        a.risk_score = 70
-        if a.recommendation is Recommendation.MONITOR:
-            a.recommendation = Recommendation.FIX_SOON
+    lo, hi = max(0, baseline.risk_score - MAX_MODEL_SHIFT), min(100, baseline.risk_score + MAX_MODEL_SHIFT)
+    a.risk_score = max(lo, min(hi, a.risk_score))
+    if f.severity is Severity.CRITICAL and reach.status == "imported":
+        a.risk_score = max(a.risk_score, 70)
+    a.recommendation = _bucket(a.risk_score, f.fixable)
+    if _leaks_prompt(a.rationale):
+        a.rationale = "[rationale withheld: it echoed system instructions]"
     return a
 
 
@@ -161,7 +177,7 @@ def triage_one(f: Finding, code_root: str | None, backend: LLMBackend | None) ->
         baseline.rationale += f" [LLM unavailable: {type(exc).__name__}; used heuristic]"
         return baseline
     try:
-        answer = apply_guardrails(_LLMAnswer(**_extract_json(raw)), f, reach)
+        answer = apply_guardrails(_LLMAnswer(**_extract_json(raw)), f, reach, baseline)
     except (ValueError, ValidationError, json.JSONDecodeError) as exc:
         baseline.rationale += f" [LLM output rejected: {type(exc).__name__}; used heuristic]"
         return baseline

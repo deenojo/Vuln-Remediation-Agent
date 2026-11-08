@@ -80,7 +80,12 @@ def cmd_triage(args: argparse.Namespace) -> int:
     store = Store(args.db)
     backend = get_backend(args.backend)
     findings = store.open_finding_models()
-    results = [triage_one(f, args.code_root, backend) for f in findings]
+    # Cost cap (OWASP LLM10, unbounded consumption): worst findings get the model, the rest the heuristic.
+    findings.sort(key=lambda f: (-f.severity.rank, -(f.cvss or 0)))
+    results = [
+        triage_one(f, args.code_root, backend if i < args.max_llm_calls else None)
+        for i, f in enumerate(findings)
+    ]
     store.record_triage(results)
     by_key = {f.dedupe_key: f for f in findings}
     for r in sorted(results, key=lambda x: -x.risk_score):
@@ -194,6 +199,21 @@ def cmd_heal(args: argparse.Namespace) -> int:
     return 0 if (res.ok or nothing_to_do) else 1
 
 
+def cmd_redteam(args: argparse.Namespace) -> int:
+    from vra.llm import get_backend
+    from vra.redteam import CRITICAL_GOALS, CompromisedBackend, report, run_suite
+
+    backend = CompromisedBackend() if args.backend == "compromised" else get_backend(args.backend)
+    if backend is None:
+        print("The heuristic backend has no model to attack; use compromised, anthropic or ollama.")
+        return 1
+    results = run_suite(args.payloads, backend)
+    print(f"Red-team suite against backend: {backend.name}\n")
+    print(report(results))
+    landed = [r for r in results if r.attack_landed and r.goal in CRITICAL_GOALS]
+    return 1 if landed else 0
+
+
 def subprocess_push(branch: str, repo_root: str) -> None:
     import subprocess
 
@@ -227,6 +247,7 @@ def main(argv: list[str] | None = None) -> int:
     tr.add_argument("--backend", default="heuristic", choices=["heuristic", "anthropic", "ollama"])
     tr.add_argument("--code-root", help="Source tree used for reachability checks")
     tr.add_argument("-v", "--verbose", action="store_true")
+    tr.add_argument("--max-llm-calls", type=int, default=50, help="Cost cap; the rest use the heuristic")
     tr.set_defaults(func=cmd_triage)
 
     ev = sub.add_parser("eval", help="Measure triage agreement with hand labels")
@@ -254,6 +275,11 @@ def main(argv: list[str] | None = None) -> int:
     hl.add_argument("--container", default="app")
     hl.add_argument("--kind-cluster", help="Load the patched image into this kind cluster before rollout")
     hl.set_defaults(func=cmd_heal)
+
+    rt = sub.add_parser("redteam", help="Run the prompt-injection suite against a triage backend")
+    rt.add_argument("--backend", default="compromised", choices=["compromised", "anthropic", "ollama", "heuristic"])
+    rt.add_argument("--payloads", default="eval/redteam/payloads.yaml")
+    rt.set_defaults(func=cmd_redteam)
 
     args = parser.parse_args(argv)
     return args.func(args)

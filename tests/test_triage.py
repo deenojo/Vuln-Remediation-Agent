@@ -94,7 +94,7 @@ def test_backend_error_falls_back_to_heuristic():
 def test_guardrail_floor_for_reachable_critical():
     reply = json.dumps({"risk_score": 5, "recommendation": "monitor", "rationale": "x", "confidence": 0.9})
     r = triage_one(f("pyyaml", Severity.CRITICAL, 9.8), APP, FakeBackend(reply))
-    assert r.risk_score == 70 and r.recommendation is Recommendation.FIX_SOON
+    assert r.risk_score == 70 and r.recommendation is Recommendation.FIX_NOW
 
 
 def test_guardrail_model_cannot_invent_a_fix():
@@ -126,3 +126,19 @@ def test_cli_triage_and_eval(tmp_path, capsys):
     assert "7 findings triaged by heuristic" in out
     assert main(["--db", db, "eval", "--labels", str(ROOT / "eval" / "labels.csv")]) == 0
     assert "Agreement with hand labels" in capsys.readouterr().out
+
+
+def test_model_influence_is_bounded():
+    # pillow is never imported: baseline is low, so the model can't push it to fix_now
+    reply = json.dumps({"risk_score": 100, "recommendation": "fix_now", "rationale": "x", "confidence": 1})
+    finding = f("pillow", Severity.LOW, 3.1)
+    r = triage_one(finding, APP, FakeBackend(reply))
+    base = heuristic(finding, reachability.check("pillow", "PyPI", APP)).risk_score
+    assert r.risk_score == base + 40 and r.recommendation is not Recommendation.FIX_NOW
+
+
+def test_rationale_that_echoes_system_prompt_is_withheld():
+    from vra.triage import SYSTEM_PROMPT
+    reply = json.dumps({"risk_score": 50, "recommendation": "fix_soon",
+                        "rationale": SYSTEM_PROMPT[:200], "confidence": 0.5})
+    assert "withheld" in triage_one(f("requests"), APP, FakeBackend(reply)).rationale

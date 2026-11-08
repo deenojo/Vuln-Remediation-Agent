@@ -4,7 +4,7 @@
 
 An AI agent that finds dependency and container vulnerabilities, triages them by real risk, fixes them automatically where policy allows, and proves each fix by re-scanning.
 
-> **Status: Weeks 1–4 of 6 done: scanning, triage agent, policy-gated fix PRs, container self-healing.** See the [roadmap](#roadmap).
+> **Status: Weeks 1–5 of 6 done: scanning, triage agent, policy-gated fix PRs, container self-healing, red-team + threat model.** See the [roadmap](#roadmap).
 
 ## Architecture
 
@@ -80,6 +80,15 @@ On the demo app, 1 of 5 fixes auto-merges (jinja2, a patch bump). pyyaml, reques
 | `scan` workflow, demo repo + image | **821 raw findings → 737 unique** (84 cross-scanner duplicates merged): 39 Critical, 265 High, 391 fixable |
 | `heal` workflow, demo image | **287 fixable OS CVEs → 0** after the Copa patch, verified by re-scan with no new High/Critical; signed with cosign (keyless) and rolled out to kind with zero downtime |
 
+## What works today (Week 5)
+
+- **Prompt-injection red team** (`patchwarden redteam`, `eval/redteam/payloads.yaml`): 9 attacks planted in advisory titles and code comments (fake system messages, authority claims, false-positive claims, fabricated fixes, prompt-leak requests, schema breaking, control-character smuggling). Each one reports *model fooled* and *attack landed* separately.
+  - **Worst-case result: a fully compromised model** that obeys every attacker (fooled 9/9) **lands 0/8 safety-critical attacks** and 0/9 overall, because the guardrails don't depend on the model behaving.
+  - `patchwarden redteam --backend anthropic` measures how often a real model is fooled.
+- **Hardened guardrails:** bounded influence (the model can move the evidence-based score by at most ±40), a recommendation derived from the score, system-prompt echo detection, and an LLM cost cap (`--max-llm-calls`).
+- **[THREAT_MODEL.md](THREAT_MODEL.md):** data-flow diagram, trust boundaries, 14 STRIDE threats each mapped to the code and test that enforce the mitigation, an OWASP LLM Top 10 (2025) mapping, and residual risks.
+- **Customer-cloud security baseline** (`infra/azure`): Terraform for AKS (private, Azure RBAC, local accounts off, network policy, ephemeral + host-encrypted disks, Defender, auto-upgrade), ACR (no admin user, pull by identity only) and Key Vault (RBAC, purge protection, deny-by-default). **Checkov: 31 passed, 0 failed**; the 12 controls not met carry inline justifications (mostly Premium-SKU cost). CI validates it on every change and never applies it.
+
 ## What works today (Week 4)
 
 - **`patchwarden heal <image>`** (`vra/heal.py`): Trivy OS scan → **Copa** patch (adds a patch layer, no Dockerfile rebuild) → re-scan and **verify** → push → **cosign** sign → `kubectl` rollout with **automatic rollback** if the rollout fails.
@@ -93,7 +102,7 @@ The CLI installs as both `patchwarden` and the short alias `vra`.
 
 ```bash
 pip install -e ".[dev]"
-pytest -q                                   # 50 tests, uses fixtures, no scanners needed
+pytest -q                                   # 55 tests, uses fixtures, no scanners needed
 
 # Full scan (needs trivy, osv-scanner, syft; docker for the image scan)
 bash scanner/run_scans.sh
@@ -118,7 +127,7 @@ vra ingest --trivy-fs tests/fixtures/trivy-fs.json \
 | 2 | Triage agent (Claude / local model): reachability + risk scoring | ✅ |
 | 3 | Dependency remediation: fix PRs + policy gate | ✅ |
 | 4 | Container self-healing: Copa patch → re-scan → Cosign → deploy (kind/AKS) | ✅ |
-| 5 | Guardrails, prompt-injection red-team, STRIDE threat model | ⏳ |
+| 5 | Guardrails, prompt-injection red-team, STRIDE threat model | ✅ |
 | 6 | Burn-down dashboard, demo video, results | ⏳ |
 
 ## Cost
