@@ -137,7 +137,7 @@ def pr_body(plan: FixPlan) -> str:
 {reasons}
 
 ---
-*Opened by vuln-remediation-agent. Merges only after required checks pass. The agent recommends; `policy/policy.yaml` decides.*
+*Opened by Patchwarden. Merges only after required checks pass. The agent recommends; `policy/policy.yaml` decides.*
 """
 
 

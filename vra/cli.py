@@ -163,7 +163,7 @@ def subprocess_push(branch: str, repo_root: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="vra", description=__doc__)
+    parser = argparse.ArgumentParser(prog="patchwarden", description="Patchwarden: self-healing vulnerability remediation agent.\n" + __doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--db", default="data/findings.db")
     sub = parser.add_subparsers(dest="cmd", required=True)
 

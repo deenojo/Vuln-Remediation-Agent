@@ -50,8 +50,8 @@ jobs:
 
       - name: Open fix PRs
         run: |
-          git config user.name  "vra-bot"
-          git config user.email "vra-bot@users.noreply.github.com"
+          git config user.name  "patchwarden-bot"
+          git config user.email "patchwarden-bot@users.noreply.github.com"
           vra remediate --mode pr
 
       - name: Enable auto-merge on PRs the gate approved

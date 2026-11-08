@@ -1,4 +1,6 @@
-# Self-Healing Vulnerability Remediation Agent
+# Patchwarden
+
+**Self-Healing Vulnerability Remediation Agent**
 
 An AI agent that finds dependency and container vulnerabilities, triages them by real risk, fixes them automatically where policy allows, and proves each fix by re-scanning.
 
@@ -28,7 +30,7 @@ An AI agent that finds dependency and container vulnerabilities, triages them by
                                       └──────────────┘
 ```
 
-**Key design rule:** the LLM *recommends*; a deterministic policy engine *decides*. The model can never merge or deploy on its own judgment.
+**Key design rule:** the LLM *recommends*; a deterministic policy engine (the *warden*) *decides*. The model can never merge or deploy on its own judgment.
 
 ## What works today (Week 1)
 
@@ -72,6 +74,8 @@ On the demo app, 1 of 5 fixes auto-merges (jinja2, a patch bump). pyyaml, reques
 4. Recommended: add a fine-grained token as the secret `VRA_BOT_TOKEN` (contents + pull requests: read/write, this repo only). PRs opened with the default `GITHUB_TOKEN` don't trigger other workflows, so required checks wouldn't run on them.
 
 ## Quick start
+
+The CLI installs as both `patchwarden` and the short alias `vra`.
 
 ```bash
 pip install -e ".[dev]"

@@ -1,4 +1,4 @@
-# Walkthrough: design decisions
+# Patchwarden walkthrough: design decisions
 
 This file explains *why* the code is shaped the way it is. Read it before interviews: each section ends with questions you should be able to answer.
 
