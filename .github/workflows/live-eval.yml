@@ -1,0 +1,64 @@
+name: live-eval
+
+# Real-model numbers next to the worst-case ones. Manual only (costs a few cents per run).
+# Requires the repository secret ANTHROPIC_API_KEY.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Claude model for triage + red team"
+        default: claude-haiku-5-5
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      VRA_MODEL: ${{ inputs.model }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,llm]"
+      - name: Check secret
+        run: test -n "$ANTHROPIC_API_KEY" || { echo "ANTHROPIC_API_KEY secret is missing"; exit 1; }
+
+      - name: Load the labeled findings (frozen demo app fixtures)
+        run: |
+          vra --db live.db ingest --trivy-fs tests/fixtures/trivy-fs.json \
+              --osv tests/fixtures/osv.json --trivy-image tests/fixtures/trivy-image.json
+
+      - name: Triage accuracy, heuristic baseline
+        run: |
+          vra --db live.db triage --code-root tests/fixtures/demo-app | tail -1
+          vra --db live.db eval --labels eval/labels.csv | tee heuristic.txt
+
+      - name: Triage accuracy, Claude
+        run: |
+          vra --db live.db triage --backend anthropic --code-root tests/fixtures/demo-app -v | tee claude-triage.txt
+          vra --db live.db eval --labels eval/labels.csv | tee claude.txt
+
+      - name: Prompt-injection red team, real Claude
+        run: patchwarden redteam --backend anthropic | tee redteam.txt || true
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Live evaluation (${VRA_MODEL})"
+            echo '### Triage agreement with hand labels'
+            echo '```'; echo "heuristic: $(head -1 heuristic.txt 2>/dev/null)"; echo "claude:    $(head -1 claude.txt 2>/dev/null)"; echo '```'
+            echo '### Red team (real model)'
+            echo '```'; cat redteam.txt 2>/dev/null; echo '```'
+            echo '### Claude triage rationale'
+            echo '```'; cat claude-triage.txt 2>/dev/null; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-eval
+          path: "*.txt"
