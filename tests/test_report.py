@@ -32,4 +32,5 @@ def test_report_shows_burndown_and_kpis(tmp_path):
 def test_report_handles_empty_db(tmp_path):
     out = tmp_path / "i.html"
     assert main(["--db", str(tmp_path / "e.db"), "report", "--out", str(out), "--payloads", "nope"]) == 0
-    assert "Burn-down appears after two or more scans" in out.read_text()
+    page = out.read_text()
+    assert "Baseline recorded" in page and "No fixes yet" in page and "n/a" not in page

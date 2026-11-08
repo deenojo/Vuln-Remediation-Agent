@@ -2,6 +2,8 @@
 
 **Self-Healing Vulnerability Remediation Agent**
 
+**[📊 Live dashboard](https://deenojo.github.io/Vuln-Remediation-Agent/)**: burn-down, MTTR, triage and self-healing results, rebuilt nightly by CI.
+
 An AI agent that finds dependency and container vulnerabilities, triages them by real risk, fixes them automatically where policy allows, and proves each fix by re-scanning.
 
 > **Status: all 6 weeks built: scanning, triage agent, policy-gated fix PRs, container self-healing, red team + threat model, live dashboard.** See the [roadmap](#roadmap).

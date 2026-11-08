@@ -61,7 +61,8 @@ def collect(db: str | Path) -> dict:
 
 def _line_chart(series: list[dict], w: int = 760, h: int = 260) -> str:
     if len(series) < 2:
-        return "<p class='muted'>Burn-down appears after two or more scans.</p>"
+        return ("<p class='muted'>Baseline recorded. The burn-down appears after the next scan "
+                "(nightly, or run the dashboard workflow).</p>")
     pad_l, pad_r, pad_t, pad_b = 48, 120, 16, 36
     ymax = max(max(r["CRITICAL"] + r["HIGH"], 1) for r in series)
     ymax = max(ymax, 1)
@@ -134,7 +135,9 @@ def render(data: dict, redteam: dict | None = None) -> str:
     peak = max((r["CRITICAL"] + r["HIGH"] for r in s), default=crit_high)
     reduction = f"{100 * (peak - crit_high) / peak:.0f}%" if peak else "n/a"
     all_mttr = [v for v in data["mttr"].values() if v is not None]
-    mttr = _fmt_h(sum(all_mttr) / len(all_mttr)) if all_mttr else "n/a"
+    mttr = _fmt_h(sum(all_mttr) / len(all_mttr)) if all_mttr else None
+    mttr_kpi = (f"<b>{mttr}</b><span>mean time to remediate</span>" if mttr else
+                "<b>No fixes yet</b><span>MTTR starts after the first fix merges</span>")
 
     heal_rows = "".join(
         f"<tr><td>{html.escape(h['at'][:16].replace('T', ' '))}</td><td><code>{html.escape(h['subject'])}</code></td>"
@@ -160,7 +163,8 @@ def render(data: dict, redteam: dict | None = None) -> str:
     mttr_rows = "".join(
         f"<tr><td>{sev.title()}</td><td>{_fmt_h(data['mttr'].get(sev))}</td></tr>"
         for sev in SEV_ORDER if sev in data["mttr"]
-    ) or "<tr><td colspan='2' class='muted'>No findings resolved yet.</td></tr>"
+    ) or ("<tr><td colspan='2' class='muted'>No fixes yet: MTTR starts after the first fix merges "
+          "and a later scan confirms the vulnerability is gone.</td></tr>")
 
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     return f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
@@ -171,7 +175,7 @@ def render(data: dict, redteam: dict | None = None) -> str:
 <div class='kpi'><b>{open_total}</b><span>open findings</span></div>
 <div class='kpi'><b>{crit_high}</b><span>open Critical + High</span></div>
 <div class='kpi'><b>{reduction}</b><span>Critical + High burned down from peak</span></div>
-<div class='kpi'><b>{mttr}</b><span>mean time to remediate</span></div>
+<div class='kpi'>{mttr_kpi}</div>
 </div>
 <section><h2>Burn-down: open Critical and High</h2>{_line_chart(s)}</section>
 <section><h2>Open findings by severity</h2>{_bars(data['open_by_sev'])}
