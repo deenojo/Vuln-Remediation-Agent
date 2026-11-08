@@ -3,6 +3,8 @@
   vra ingest --trivy-fs reports/trivy-fs.json --osv reports/osv.json --trivy-image reports/trivy-img.json
   vra list [--severity HIGH]
   vra summary
+  vra triage --backend heuristic|anthropic|ollama --code-root targets/demo-vulnerable-app
+  vra eval --labels eval/labels.csv
 """
 
 from __future__ import annotations
@@ -70,6 +72,57 @@ def cmd_summary(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_triage(args: argparse.Namespace) -> int:
+    from vra.llm import get_backend
+    from vra.triage import triage_one
+
+    store = Store(args.db)
+    backend = get_backend(args.backend)
+    findings = store.open_finding_models()
+    results = [triage_one(f, args.code_root, backend) for f in findings]
+    store.record_triage(results)
+    by_key = {f.dedupe_key: f for f in findings}
+    for r in sorted(results, key=lambda x: -x.risk_score):
+        f = by_key[r.finding_key]
+        print(f"{r.risk_score:>3}  {r.recommendation.value:<17} {f.vuln_id:<18} {f.package:<10} "
+              f"reach={r.reachability.split(':')[0]}")
+        if args.verbose:
+            print(f"     {r.rationale}")
+    urgent = sum(1 for r in results if r.recommendation.value == "fix_now")
+    print(f"\n{len(results)} findings triaged by {backend.name if backend else 'heuristic'}; "
+          f"{urgent} need action now")
+    return 0
+
+
+def cmd_eval(args: argparse.Namespace) -> int:
+    """Compare the latest triage against hand labels (CSV: vuln_id,package,expected)."""
+    import csv
+
+    store = Store(args.db)
+    triage = store.latest_triage()
+    findings = {(f.vuln_id, f.package.lower()): f for f in store.open_finding_models()}
+    total = agree = 0
+    misses = []
+    with open(args.labels, newline="") as fh:
+        for row in csv.DictReader(fh):
+            f = findings.get((row["vuln_id"], row["package"].lower()))
+            if not f or f.dedupe_key not in triage:
+                continue
+            total += 1
+            got = triage[f.dedupe_key]["recommendation"]
+            if got == row["expected"]:
+                agree += 1
+            else:
+                misses.append(f"{row['vuln_id']} {row['package']}: expected {row['expected']}, got {got}")
+    if not total:
+        print("No labeled findings matched the latest triage.")
+        return 1
+    print(f"Agreement with hand labels: {agree}/{total} ({100 * agree / total:.0f}%)")
+    for m in misses:
+        print("  miss:", m)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="vra", description=__doc__)
     parser.add_argument("--db", default="data/findings.db")
@@ -92,6 +145,16 @@ def main(argv: list[str] | None = None) -> int:
 
     sm = sub.add_parser("summary", help="Open counts by severity + MTTR")
     sm.set_defaults(func=cmd_summary)
+
+    tr = sub.add_parser("triage", help="Score and explain open findings")
+    tr.add_argument("--backend", default="heuristic", choices=["heuristic", "anthropic", "ollama"])
+    tr.add_argument("--code-root", help="Source tree used for reachability checks")
+    tr.add_argument("-v", "--verbose", action="store_true")
+    tr.set_defaults(func=cmd_triage)
+
+    ev = sub.add_parser("eval", help="Measure triage agreement with hand labels")
+    ev.add_argument("--labels", required=True)
+    ev.set_defaults(func=cmd_eval)
 
     args = parser.parse_args(argv)
     return args.func(args)

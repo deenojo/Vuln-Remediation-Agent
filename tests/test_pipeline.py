@@ -28,7 +28,7 @@ def test_severity_parsing():
 
 def test_parse_trivy_fs():
     findings = parse_trivy(load("trivy-fs.json"), target_type="repo")
-    assert len(findings) == 3
+    assert len(findings) == 4
     pyyaml = next(f for f in findings if f.package == "pyyaml")
     assert pyyaml.severity is Severity.CRITICAL
     assert pyyaml.fixed_version == "5.4"
@@ -53,8 +53,8 @@ def test_parse_osv_maps_ghsa_to_cve_and_fix():
 def test_merge_dedupes_across_scanners():
     raw = parse_trivy(load("trivy-fs.json"), "repo") + parse_osv(load("osv.json"))
     merged = merge_findings(raw)
-    assert len(raw) == 5
-    assert len(merged) == 4  # requests CVE-2018-18074 reported by both
+    assert len(raw) == 6
+    assert len(merged) == 5  # requests CVE-2018-18074 reported by both
     req = next(f for f in merged if f.package == "requests")
     assert req.sources == ["osv-scanner", "trivy"]
     assert merged[0].severity is Severity.CRITICAL  # sorted worst-first
@@ -110,8 +110,8 @@ def test_cli_end_to_end(tmp_path, capsys):
     ])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "7 raw findings -> 6 unique (1 duplicates merged)" in out
+    assert "8 raw findings -> 7 unique (1 duplicates merged)" in out
     main(["--db", db, "summary"])
     summary = json.loads(capsys.readouterr().out)
-    assert summary["open"]["TOTAL"] == 6
-    assert summary["open"]["CRITICAL"] == 1
+    assert summary["open"]["TOTAL"] == 7
+    assert summary["open"]["CRITICAL"] == 2

@@ -33,6 +33,17 @@ CREATE TABLE IF NOT EXISTS findings (
     last_seen        TEXT NOT NULL,
     resolved_at      TEXT
 );
+CREATE TABLE IF NOT EXISTS triage (
+    finding_key    TEXT NOT NULL,
+    triaged_at     TEXT NOT NULL,
+    risk_score     INTEGER NOT NULL,
+    recommendation TEXT NOT NULL,
+    reachability   TEXT NOT NULL,
+    rationale      TEXT NOT NULL,
+    confidence     REAL NOT NULL,
+    decided_by     TEXT NOT NULL,
+    PRIMARY KEY (finding_key, triaged_at)
+);
 CREATE TABLE IF NOT EXISTS scans (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     started_at TEXT NOT NULL,
@@ -114,6 +125,40 @@ class Store:
                ORDER BY CASE severity WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1
                WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 3 ELSE 4 END, cvss DESC"""
         ).fetchall()
+
+    def open_finding_models(self) -> list[Finding]:
+        out = []
+        for r in self.open_findings():
+            out.append(
+                Finding(
+                    vuln_id=r["vuln_id"], aliases=json.loads(r["aliases"]), package=r["package"],
+                    installed_version=r["installed_version"], fixed_version=r["fixed_version"],
+                    ecosystem=r["ecosystem"], target=r["target"], target_type=r["target_type"],
+                    severity=r["severity"], cvss=r["cvss"], title=r["title"] or "", url=r["url"],
+                    sources=json.loads(r["sources"]),
+                )
+            )
+        return out
+
+    def record_triage(self, results: list, now: str | None = None) -> None:
+        now = now or _now()
+        self.conn.executemany(
+            "INSERT OR REPLACE INTO triage VALUES (?,?,?,?,?,?,?,?)",
+            [
+                (r.finding_key, now, r.risk_score, r.recommendation.value, r.reachability,
+                 r.rationale, r.confidence, r.decided_by)
+                for r in results
+            ],
+        )
+        self.conn.commit()
+
+    def latest_triage(self) -> dict[str, sqlite3.Row]:
+        rows = self.conn.execute(
+            """SELECT t.* FROM triage t JOIN (
+                 SELECT finding_key, MAX(triaged_at) m FROM triage GROUP BY finding_key
+               ) x ON t.finding_key = x.finding_key AND t.triaged_at = x.m"""
+        ).fetchall()
+        return {r["finding_key"]: r for r in rows}
 
     def mttr_hours(self) -> float | None:
         """Mean time to remediate across resolved findings, in hours."""

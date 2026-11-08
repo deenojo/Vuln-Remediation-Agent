@@ -1,0 +1,8 @@
+vuln_id,package,expected
+CVE-2020-14343,pyyaml,fix_now
+CVE-2018-1000656,flask,fix_now
+CVE-2018-18074,requests,fix_soon
+CVE-2019-10906,jinja2,fix_soon
+CVE-2021-25289,pillow,monitor
+CVE-2023-0286,openssl,fix_soon
+CVE-2022-0000-DEMO,libexample,no_fix_available

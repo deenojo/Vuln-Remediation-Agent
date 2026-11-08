@@ -17,7 +17,11 @@
           "Severity": "HIGH",
           "Title": "requests: Redirect from HTTPS to HTTP does not remove Authorization header",
           "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2018-18074",
-          "CVSS": {"nvd": {"V3Score": 7.5}}
+          "CVSS": {
+            "nvd": {
+              "V3Score": 7.5
+            }
+          }
         },
         {
           "VulnerabilityID": "CVE-2020-14343",
@@ -27,7 +31,11 @@
           "Severity": "CRITICAL",
           "Title": "PyYAML: incomplete fix for CVE-2020-1747",
           "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2020-14343",
-          "CVSS": {"nvd": {"V3Score": 9.8}}
+          "CVSS": {
+            "nvd": {
+              "V3Score": 9.8
+            }
+          }
         },
         {
           "VulnerabilityID": "CVE-2019-10906",
@@ -37,7 +45,25 @@
           "Severity": "HIGH",
           "Title": "python-jinja2: str.format_map allows sandbox escape",
           "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2019-10906",
-          "CVSS": {"nvd": {"V3Score": 8.6}}
+          "CVSS": {
+            "nvd": {
+              "V3Score": 8.6
+            }
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2021-25289",
+          "PkgName": "pillow",
+          "InstalledVersion": "8.0.0",
+          "FixedVersion": "8.1.1",
+          "Severity": "CRITICAL",
+          "Title": "python-pillow: heap-based buffer overflow in TiffDecode.c",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2021-25289",
+          "CVSS": {
+            "nvd": {
+              "V3Score": 9.8
+            }
+          }
         }
       ]
     }
