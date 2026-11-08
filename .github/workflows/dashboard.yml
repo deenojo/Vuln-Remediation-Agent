@@ -33,7 +33,7 @@ jobs:
 
       - run: bash scanner/metrics_db.sh restore
       - run: bash scanner/run_scans.sh
-      - run: patchwarden triage --code-root targets/demo-vulnerable-app
+      - run: patchwarden triage
       - run: bash scanner/metrics_db.sh save
       - run: patchwarden report --out site/index.html
 

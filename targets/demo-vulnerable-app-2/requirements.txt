@@ -1,0 +1,8 @@
+# INTENTIONALLY OUTDATED second demo target (keeps the pipeline busy after app 1's platform upgrade).
+# Do not deploy it anywhere public.
+pyjwt==1.7.1
+lxml==4.6.2
+urllib3==1.26.4
+# Installed but never imported: tests reachability-aware triage.
+cryptography==3.3.2
+sqlparse==0.4.1

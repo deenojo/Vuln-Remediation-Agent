@@ -7,7 +7,7 @@ from vra.models import Finding, Severity
 from vra.triage import Recommendation, build_prompt, heuristic, sanitize, triage_one
 
 ROOT = Path(__file__).resolve().parent.parent
-APP = str(ROOT / "targets" / "demo-vulnerable-app")
+APP = str(Path(__file__).parent / "fixtures" / "demo-app")  # frozen original vulnerable app
 FIX = Path(__file__).parent / "fixtures"
 
 

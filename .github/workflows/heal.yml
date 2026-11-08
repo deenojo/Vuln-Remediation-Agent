@@ -1,6 +1,6 @@
 name: heal
 
-# Container self-healing demo, end to end, for $0:
+# Container self-healing demo, end to end, for $0 (on demo app 2, which keeps an old base image):
 # build -> push to a throwaway in-job registry -> deploy to kind -> Copa patch OS CVEs -> re-scan/verify
 #       -> push + cosign keyless sign -> roll out to kind (auto-rollback on failure)
 on:
@@ -38,7 +38,7 @@ jobs:
 
       - name: Build + push the vulnerable image
         run: |
-          docker build -t "$IMAGE" targets/demo-vulnerable-app
+          docker build -t "$IMAGE" targets/demo-vulnerable-app-2
           docker push "$IMAGE"
 
       - name: Create kind cluster and deploy the vulnerable version

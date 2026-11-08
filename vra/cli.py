@@ -82,8 +82,14 @@ def cmd_triage(args: argparse.Namespace) -> int:
     findings = store.open_finding_models()
     # Cost cap (OWASP LLM10, unbounded consumption): worst findings get the model, the rest the heuristic.
     findings.sort(key=lambda f: (-f.severity.rank, -(f.cvss or 0)))
+    def code_root_for(f):
+        # Default: the source tree next to the finding's manifest (multi-target repos).
+        if args.code_root:
+            return args.code_root
+        return str(Path(f.target).parent) if f.target_type == "repo" else None
+
     results = [
-        triage_one(f, args.code_root, backend if i < args.max_llm_calls else None)
+        triage_one(f, code_root_for(f), backend if i < args.max_llm_calls else None)
         for i, f in enumerate(findings)
     ]
     store.record_triage(results)
@@ -264,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
 
     tr = sub.add_parser("triage", help="Score and explain open findings")
     tr.add_argument("--backend", default="heuristic", choices=["heuristic", "anthropic", "ollama"])
-    tr.add_argument("--code-root", help="Source tree used for reachability checks")
+    tr.add_argument("--code-root", help="Source tree for reachability (default: each manifest's directory)")
     tr.add_argument("-v", "--verbose", action="store_true")
     tr.add_argument("--max-llm-calls", type=int, default=50, help="Cost cap; the rest use the heuristic")
     tr.set_defaults(func=cmd_triage)

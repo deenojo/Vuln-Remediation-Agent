@@ -86,7 +86,8 @@ def test_apply_plan_rewrites_only_the_pin_and_keeps_comments(tmp_path):
 def test_cli_end_to_end_plan_and_commit(tmp_path, capsys):
     # Work in a throwaway git copy of the demo target.
     repo = tmp_path / "repo"
-    shutil.copytree(ROOT / "targets", repo / "targets")
+    # frozen copy of the original vulnerable app, so tests don't depend on the live demo pins
+    shutil.copytree(FIX / "demo-app", repo / "targets" / "demo-vulnerable-app")
     shutil.copytree(ROOT / "policy", repo / "policy")
     run = lambda *a: subprocess.run(["git", *a], cwd=repo, check=True, capture_output=True)
     run("init", "-q", "-b", "main")
