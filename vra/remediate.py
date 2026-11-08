@@ -74,6 +74,7 @@ def build_plans(findings: list[Finding], triage: dict, policy: dict) -> list[Fix
             groups.setdefault((f.target, f.package.lower()), []).append(f)
     plans = []
     for (manifest, _), group in sorted(groups.items()):
+        group.sort(key=lambda f: len(f.installed_version))  # prefer the spelling used in the file
         target = max((f.fixed_version for f in group), key=_vkey)  # one bump fixes all
         tri = [triage[f.dedupe_key] for f in group if f.dedupe_key in triage]
         if not tri:

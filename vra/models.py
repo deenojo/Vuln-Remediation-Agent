@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from enum import Enum
 
+from packaging.utils import canonicalize_version
 from pydantic import BaseModel, Field
 
 
@@ -67,9 +68,19 @@ class Finding(BaseModel):
     def dedupe_key(self) -> str:
         """Same vuln + same package/version + same target = same finding, whichever scanner saw it."""
         raw = "|".join(
-            [self.vuln_id.upper(), self.package.lower(), self.installed_version, self.target]
+            [self.vuln_id.upper(), self.package.lower(), self.norm_version, self.target]
         )
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+    @property
+    def norm_version(self) -> str:
+        """Scanners spell the same version differently ('2.10' vs '2.10.0'); canonicalize for PyPI."""
+        if self.ecosystem == "PyPI":
+            try:
+                return canonicalize_version(self.installed_version)
+            except Exception:
+                return self.installed_version
+        return self.installed_version
 
     @property
     def fixable(self) -> bool:

@@ -115,3 +115,16 @@ def test_cli_end_to_end(tmp_path, capsys):
     summary = json.loads(capsys.readouterr().out)
     assert summary["open"]["TOTAL"] == 7
     assert summary["open"]["CRITICAL"] == 2
+
+
+def test_trivy_fs_targets_are_anchored_to_scan_dir_and_versions_canonicalized():
+    trivy = {"ArtifactName": "targets/app", "Results": [{"Target": "requirements.txt", "Type": "pip",
+             "Vulnerabilities": [{"VulnerabilityID": "CVE-2019-10906", "PkgName": "jinja2",
+                                  "InstalledVersion": "2.10", "FixedVersion": "2.10.1", "Severity": "HIGH"}]}]}
+    osv = {"results": [{"source": {"path": "/ci/repo/targets/app/requirements.txt"}, "packages": [{
+        "package": {"name": "jinja2", "version": "2.10.0", "ecosystem": "PyPI"},
+        "vulnerabilities": [{"id": "GHSA-462w-v97r-4m45", "aliases": ["CVE-2019-10906"]}]}]}]}
+    merged = merge_findings(parse_trivy(trivy, "repo") + parse_osv(osv), root="/ci/repo")
+    assert len(merged) == 1
+    assert merged[0].target == "targets/app/requirements.txt"
+    assert merged[0].sources == ["osv-scanner", "trivy"]

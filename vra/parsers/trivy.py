@@ -31,6 +31,13 @@ def _best_cvss(vuln: dict[str, Any]) -> float | None:
     return max(scores) if scores else None
 
 
+def _anchor(target: str, artifact: str) -> str:
+    t, a = target.replace("\\", "/"), artifact.replace("\\", "/").rstrip("/")
+    if not a or a == "." or t.startswith(a + "/") or t == a or t.startswith("/"):
+        return t
+    return f"{a}/{t}"
+
+
 def parse_trivy(report: dict[str, Any], target_type: str) -> list[Finding]:
     """Turn a Trivy JSON report into normalized findings.
 
@@ -41,7 +48,9 @@ def parse_trivy(report: dict[str, Any], target_type: str) -> list[Finding]:
     for result in report.get("Results") or []:
         ecosystem = _ECOSYSTEMS.get(result.get("Type", ""), result.get("Type", "unknown"))
         # For images, the image name is the meaningful target; for repos, the manifest path.
-        target = artifact if target_type == "image" else result.get("Target", artifact)
+        # `trivy fs DIR` reports manifests relative to DIR, so anchor them to DIR (= ArtifactName)
+        # to line up with osv-scanner, which reports full paths.
+        target = artifact if target_type == "image" else _anchor(result.get("Target", artifact), artifact)
         for vuln in result.get("Vulnerabilities") or []:
             primary = vuln.get("VulnerabilityID", "")
             aliases = [a for a in vuln.get("VendorIDs") or [] if a != primary]
