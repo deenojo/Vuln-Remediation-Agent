@@ -36,6 +36,23 @@ jobs:
       - name: Run scans + ingest
         run: bash scanner/run_scans.sh
 
+      - name: Smoke test each app container (starts and answers /healthz)
+        run: |
+          port=5100
+          for dir in targets/*/; do
+            name=$(basename "$dir")
+            docker run -d --rm --name "smoke-$name" -p "$port:5000" "$name:latest"
+            ok=0
+            for i in $(seq 1 20); do
+              if curl -sf "http://127.0.0.1:$port/healthz" >/dev/null; then ok=1; break; fi
+              sleep 1
+            done
+            docker logs "smoke-$name" | tail -5
+            docker stop "smoke-$name" >/dev/null
+            [ "$ok" = 1 ] && echo "PASS $name" || { echo "FAIL $name: no /healthz response"; exit 1; }
+            port=$((port + 1))
+          done
+
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
