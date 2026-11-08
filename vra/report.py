@@ -243,7 +243,7 @@ def render(data: dict, redteam: dict | None = None) -> str:
 <section><h2>Latest triage decisions</h2><table>{triage_rows}</table></section>
 <section><h2>Container self-healing</h2><table><tr><th>When</th><th>Image</th><th>Result</th><th>Status</th></tr>{heal_rows}</table></section>
 {rt}
-<footer>Generated {generated} by <code>patchwarden report</code>. Source: <a href='https://github.com/deenojo/Vuln-Remediation-Agent'>github.com/deenojo/Vuln-Remediation-Agent</a></footer>
+<footer>Generated {generated} by <code>patchwarden report</code>. Source: <a href='https://github.com/deenojo/Vulnerability-Remediation-Agent'>github.com/deenojo/Vulnerability-Remediation-Agent</a></footer>
 </main></body></html>"""
 
 

@@ -2,7 +2,7 @@
 
 **Self-Healing Vulnerability Remediation Agent**
 
-**[📊 Live dashboard](https://deenojo.github.io/Vuln-Remediation-Agent/)**: burn-down, MTTR, triage and self-healing results, rebuilt nightly by CI.
+**[📊 Live dashboard](https://deenojo.github.io/Vulnerability-Remediation-Agent/)**: burn-down, MTTR, triage and self-healing results, rebuilt nightly by CI.
 
 Companion project: **[Promptwall](https://github.com/deenojo/PromptWall)**, a runtime security gateway for LLM features.
 
