@@ -34,13 +34,8 @@ jobs:
       - run: pip install -e ".[dev,llm]"
       - run: pytest -q
 
-      - name: Install scanners
-        run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sudo sh -s -- -b /usr/local/bin
-          sudo curl -sSfL -o /usr/local/bin/osv-scanner \
-            https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64
-          sudo chmod +x /usr/local/bin/osv-scanner
+      - name: Install scanners (pinned + sha256-verified)
+        run: bash scanner/install_tools.sh trivy syft osv-scanner
 
       - name: Scan
         run: SKIP_IMAGE=1 bash scanner/run_scans.sh

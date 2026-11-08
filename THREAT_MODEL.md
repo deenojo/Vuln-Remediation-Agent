@@ -67,7 +67,7 @@ The key boundary: **everything the LLM reads, and everything it writes, is untru
 | T11 | CI credentials | **Elevation of privilege** | A token with broad scope is abused | Least-privilege `permissions:` per workflow (`contents: read` by default); keyless signing (no stored key); fine-grained, single-repo bot token | `.github/workflows/*.yml` |
 | T12 | Audit log | **Repudiation** | "Nobody knows why this merged" | Every gate reason goes into the PR body; every heal step goes into the append-only audit table | `vra/audit.py`, `pr_body()` |
 | T13 | Triage cost | **Denial of service** (wallet) | A flood of findings drives unbounded API spend | `--max-llm-calls` cap (default 50, worst first); the rest use the $0 heuristic | `cmd_triage` |
-| T14 | Scanners | **Spoofing** of supply chain | A compromised scanner install script | Scanners installed from official sources over TLS. **Residual:** not pinned by checksum yet (see §5) | `scan.yml` |
+| T14 | Scanners | **Spoofing** of supply chain | A compromised scanner release or install script | Exact versions pinned in `scanner/tools.lock` with SHA256; `install_tools.sh` refuses any mismatch; no `curl \| sh` install scripts. Trivy/syft hashes cross-checked against the publishers' checksum files | `scanner/install_tools.sh` |
 
 ## 4. OWASP Top 10 for LLM Applications (2025) mapping
 
@@ -88,7 +88,6 @@ The key boundary: **everything the LLM reads, and everything it writes, is untru
 
 | Risk | Why it remains | Next step |
 | --- | --- | --- |
-| Scanner/tool installs not checksum-pinned | Convenience for a demo | Pin versions + verify SHA256, or use digest-pinned container images of the tools |
 | Import-level reachability is coarse | Importing ≠ calling the vulnerable function | Per-CVE Semgrep rules for function-level reachability |
 | Third-party GitHub Actions pinned by tag, not SHA | Readability | Pin to commit SHAs (e.g. with Dependabot for actions) |
 | A real model may still be fooled into *nuisance* outcomes inside the ±40 bound | Bounded influence limits, doesn't eliminate | Track "model fooled" rate per release with `patchwarden redteam --backend anthropic` |

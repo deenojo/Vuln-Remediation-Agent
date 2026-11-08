@@ -185,7 +185,7 @@ The Terraform encodes the controls you'd expect in a regulated environment (usef
 
 ### Be ready to answer
 - Isn't ±40 arbitrary? *(Yes. It's a tunable policy parameter, chosen so no model output can move a finding across more than ~1.5 recommendation buckets. In production you'd tune it against labeled data and the red-team "fooled" rate.)*
-- What's your top residual risk? *(Tool supply chain: scanner installs aren't checksum-pinned yet. It's listed in the threat model with the fix.)*
+- What's your top residual risk? *(It was the tool supply chain, since scanners were installed with `curl | sh`. Now every binary is version-pinned and SHA256-verified against `scanner/tools.lock`. The next one is GitHub Actions pinned by tag rather than commit SHA.)*
 - How does this map to OWASP LLM Top 10? *(LLM01 prompt injection and LLM06 excessive agency are the primary risks; see the mapping table in THREAT_MODEL.md.)*
 
 ---
@@ -210,3 +210,31 @@ CI runners are disposable, so a DB written in one run is gone in the next. `metr
 ### Be ready to answer
 - How would you make this multi-repo? *(Same schema with a `repo` column, scans fanned out per repo, one dashboard with per-repo filters. Postgres instead of SQLite once there are concurrent writers.)*
 - Which metric would you show a CISO? *(Open Critical + High that are reachable, plus MTTR for Criticals vs the SLA, and the share of fixes that shipped with no human step.)*
+
+---
+
+## Improvement: smallest safe upgrade (after the first live run)
+
+### The problem
+The first live run bumped every package to the *newest* version that fixed *every* advisory. On six-year-old pins that meant major upgrades, and **5 of 6 PRs failed CI**.
+
+### The fix (`vra/resolve.py`)
+1. **Per-advisory minimal fix:** each advisory's smallest fixed version above what's installed, counting backports (jinja2 2.10 → **2.11.3**, not 3.1.6).
+2. **Stay in the current major** whenever that fixes something urgent.
+3. **Compatibility check against real package metadata** (PyPI JSON):
+   - *Requires-Python* must accept the app's runtime, read from the Dockerfile (`python:3.9`). This rejected requests 2.33+ (needs ≥ 3.10).
+   - The package's dependencies must not conflict with co-pinned packages. This rejected werkzeug 3.x (needs MarkupSafe ≥ 2.1.1; the file pins 1.1.1).
+4. **Largest compatible subset:** if no release fixes everything, give up the hardest advisory and retry. requests → **2.32.4** fixes 4 of 5; the 5th needs Python 3.10, and the PR says so.
+5. **Blocked, not broken:** if *no* compatible release fixes anything urgent (werkzeug), no PR is opened. The output explains that the real fix is upstream: upgrade Python or the co-pinned packages.
+
+### Result
+Same findings, before vs after:
+
+| | Newest-version strategy | Smallest-safe strategy |
+| --- | --- | --- |
+| PRs opened | 6 (incl. pyyaml) | 4 + 1 blocked (pyyaml already merged) |
+| Passing CI | 1 of 6 | see PRs #7–#10 |
+
+### Be ready to answer
+- Why not let pip or a lockfile tool resolve it? *(They answer "what versions install together," not "what is the smallest change that removes these specific CVEs." Patchwarden asks the security question first, then uses metadata to keep the answer installable; CI is the final check.)*
+- Why read Requires-Python from the Dockerfile? *(The runtime is part of compatibility. A fix that needs Python 3.10 isn't a dependency bump anymore; it's a platform upgrade, and that decision belongs to a person.)*

@@ -28,14 +28,8 @@ jobs:
           python-version: "3.12"
       - run: pip install -e ".[dev]" && pytest -q
 
-      - name: Install trivy + copa
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
-          gh release download -R project-copacetic/copacetic --pattern '*linux_amd64.tar.gz' -O copa.tgz
-          tar -xzf copa.tgz copa && sudo mv copa /usr/local/bin/
-          trivy --version && copa --version
+      - name: Install trivy + copa (pinned + sha256-verified)
+        run: bash scanner/install_tools.sh trivy copa
 
       - uses: sigstore/cosign-installer@v3
 
