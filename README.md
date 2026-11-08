@@ -4,7 +4,7 @@
 
 An AI agent that finds dependency and container vulnerabilities, triages them by real risk, fixes them automatically where policy allows, and proves each fix by re-scanning.
 
-> **Status: Weeks 1–5 of 6 done: scanning, triage agent, policy-gated fix PRs, container self-healing, red-team + threat model.** See the [roadmap](#roadmap).
+> **Status: all 6 weeks built: scanning, triage agent, policy-gated fix PRs, container self-healing, red team + threat model, live dashboard.** See the [roadmap](#roadmap).
 
 ## Architecture
 
@@ -80,6 +80,12 @@ On the demo app, 1 of 5 fixes auto-merges (jinja2, a patch bump). pyyaml, reques
 | `scan` workflow, demo repo + image | **821 raw findings → 737 unique** (84 cross-scanner duplicates merged): 39 Critical, 265 High, 391 fixable |
 | `heal` workflow, demo image | **287 fixable OS CVEs → 0** after the Copa patch, verified by re-scan with no new High/Critical; signed with cosign (keyless) and rolled out to kind with zero downtime |
 
+## What works today (Week 6)
+
+- **Live dashboard** (`patchwarden report`): a static, self-contained HTML page (no JavaScript) with KPIs (open findings, open Critical + High, % burned down from peak, MTTR), a burn-down chart, severity breakdown, MTTR by severity, triage decisions, container-heal history and the red-team result.
+- **History that survives CI:** the findings DB is persisted on an orphan `metrics` branch (`scanner/metrics_db.sh`), so every nightly run adds a point to the burn-down. `heal.yml` writes its audit entries to the same DB.
+- **`dashboard.yml`** runs nightly: scan → triage → record → publish to **GitHub Pages** ($0).
+
 ## What works today (Week 5)
 
 - **Prompt-injection red team** (`patchwarden redteam`, `eval/redteam/payloads.yaml`): 9 attacks planted in advisory titles and code comments (fake system messages, authority claims, false-positive claims, fabricated fixes, prompt-leak requests, schema breaking, control-character smuggling). Each one reports *model fooled* and *attack landed* separately.
@@ -102,7 +108,7 @@ The CLI installs as both `patchwarden` and the short alias `vra`.
 
 ```bash
 pip install -e ".[dev]"
-pytest -q                                   # 55 tests, uses fixtures, no scanners needed
+pytest -q                                   # 57 tests, uses fixtures, no scanners needed
 
 # Full scan (needs trivy, osv-scanner, syft; docker for the image scan)
 bash scanner/run_scans.sh
@@ -128,7 +134,7 @@ vra ingest --trivy-fs tests/fixtures/trivy-fs.json \
 | 3 | Dependency remediation: fix PRs + policy gate | ✅ |
 | 4 | Container self-healing: Copa patch → re-scan → Cosign → deploy (kind/AKS) | ✅ |
 | 5 | Guardrails, prompt-injection red-team, STRIDE threat model | ✅ |
-| 6 | Burn-down dashboard, demo video, results | ⏳ |
+| 6 | Burn-down dashboard + results | ✅ (demo video: TODO) |
 
 ## Cost
 

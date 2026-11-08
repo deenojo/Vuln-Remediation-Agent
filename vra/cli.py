@@ -214,6 +214,14 @@ def cmd_redteam(args: argparse.Namespace) -> int:
     return 1 if landed else 0
 
 
+def cmd_report(args: argparse.Namespace) -> int:
+    from vra.report import build
+
+    path = build(args.db, args.out, args.payloads)
+    print(f"Dashboard written to {path}")
+    return 0
+
+
 def subprocess_push(branch: str, repo_root: str) -> None:
     import subprocess
 
@@ -280,6 +288,11 @@ def main(argv: list[str] | None = None) -> int:
     rt.add_argument("--backend", default="compromised", choices=["compromised", "anthropic", "ollama", "heuristic"])
     rt.add_argument("--payloads", default="eval/redteam/payloads.yaml")
     rt.set_defaults(func=cmd_redteam)
+
+    rp = sub.add_parser("report", help="Build the static HTML dashboard")
+    rp.add_argument("--out", default="site/index.html")
+    rp.add_argument("--payloads", default="eval/redteam/payloads.yaml")
+    rp.set_defaults(func=cmd_report)
 
     args = parser.parse_args(argv)
     return args.func(args)

@@ -179,3 +179,26 @@ The Terraform encodes the controls you'd expect in a regulated environment (usef
 - Isn't ±40 arbitrary? *(Yes. It's a tunable policy parameter, chosen so no model output can move a finding across more than ~1.5 recommendation buckets. In production you'd tune it against labeled data and the red-team "fooled" rate.)*
 - What's your top residual risk? *(Tool supply chain: scanner installs aren't checksum-pinned yet. It's listed in the threat model with the fix.)*
 - How does this map to OWASP LLM Top 10? *(LLM01 prompt injection and LLM06 excessive agency are the primary risks; see the mapping table in THREAT_MODEL.md.)*
+
+---
+
+## Week 6: Dashboard and metrics
+
+### Why a static page instead of Grafana or Streamlit?
+- **$0 and zero ops:** GitHub Pages hosts it; nothing to keep running.
+- **Opens anywhere:** a recruiter clicks a link and sees live numbers, with no login and no app to wake up.
+- **Auditable:** each page is a snapshot rebuilt from the DB, and the DB history lives in git (`metrics` branch).
+
+The trade-off is no interactivity. For a team you'd point Grafana at the same SQLite/Postgres data.
+
+### Where the history lives
+CI runners are disposable, so a DB written in one run is gone in the next. `metrics_db.sh` restores the DB from an orphan `metrics` branch at the start of a run and force-pushes it back at the end. A `concurrency` group stops two workflows (dashboard and heal) from overwriting each other's writes.
+
+### The metrics, and how to read them honestly
+- **% burned down from peak:** open Critical + High now vs the worst point in history.
+- **MTTR:** mean of `resolved_at - first_seen` over resolved findings. Blind spot: findings that are never fixed don't count, so always read it next to the open count.
+- **Heal results:** come from the audit log, so every number traces back to a recorded action.
+
+### Be ready to answer
+- How would you make this multi-repo? *(Same schema with a `repo` column, scans fanned out per repo, one dashboard with per-repo filters. Postgres instead of SQLite once there are concurrent writers.)*
+- Which metric would you show a CISO? *(Open Critical + High that are reachable, plus MTTR for Criticals vs the SLA, and the share of fixes that shipped with no human step.)*

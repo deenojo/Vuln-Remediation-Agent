@@ -7,8 +7,12 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  id-token: write      # cosign keyless signing via GitHub OIDC
+  contents: write      # save audit entries to the metrics branch
+  id-token: write
+
+concurrency:
+  group: metrics-db
+  cancel-in-progress: false      # cosign keyless signing via GitHub OIDC
 
 env:
   IMAGE: localhost:5000/patchwarden-demo:${{ github.run_number }}
@@ -59,6 +63,11 @@ jobs:
             -v "$PWD/buildkitd.toml:/etc/buildkit/buildkitd.toml" moby/buildkit:latest
           sleep 5
 
+      - name: Restore metrics DB
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scanner/metrics_db.sh restore
+
       - name: Self-heal (patch -> verify -> sign -> roll out)
         run: |
           patchwarden heal "$IMAGE" \
@@ -71,6 +80,13 @@ jobs:
           cosign verify "${IMAGE}-patched" \
             --certificate-identity-regexp "https://github.com/${{ github.repository }}/" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+      - name: Save metrics DB
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bash scanner/metrics_db.sh save
 
       - name: Show result
         if: always()
