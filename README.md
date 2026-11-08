@@ -80,7 +80,8 @@ On the demo app, 1 of 5 fixes auto-merges (jinja2, a patch bump). pyyaml, reques
 | Run | Result |
 | --- | --- |
 | `scan` workflow, demo repo + image | **977 raw findings → 793 unique** (184 cross-scanner duplicates merged, after fixing two dedupe bugs that only showed up on real data) |
-| `remediate` on the real scan | **6 fix PRs opened (#1–#6), all routed to human review** by the policy gate. CI then proved why: 5 of the 6 newest-version bumps **fail to build** (dependency conflicts, Python-version floors). Only pyyaml 5.3.1 → 5.4, the fix for the reachable Critical, passes |
+| `remediate` v2, smallest safe upgrade | **4 fix PRs (#7–#10), all passing CI**. Each picks the smallest compatible release (Requires-Python + co-pinned deps checked against PyPI metadata); werkzeug is reported **blocked** instead of opened as a broken PR. pyyaml (#1) merged: first resolved Critical |
+| `remediate` v1 on the real scan | **6 fix PRs opened (#1–#6), all routed to human review** by the policy gate. CI then proved why: 5 of the 6 newest-version bumps **fail to build** (dependency conflicts, Python-version floors). Only pyyaml 5.3.1 → 5.4, the fix for the reachable Critical, passes |
 | `heal` workflow, demo image | **287 fixable OS CVEs → 0** after the Copa patch, verified by re-scan with no new High/Critical; signed with cosign (keyless) and rolled out to kind with zero downtime |
 
 ## What works today (Week 6)
@@ -137,7 +138,7 @@ vra ingest --trivy-fs tests/fixtures/trivy-fs.json \
 | 3 | Dependency remediation: fix PRs + policy gate | ✅ |
 | 4 | Container self-healing: Copa patch → re-scan → Cosign → deploy (kind/AKS) | ✅ |
 | 5 | Guardrails, prompt-injection red-team, STRIDE threat model | ✅ |
-| 6 | Burn-down dashboard + results | ✅ (demo video: TODO) |
+| 6 | Burn-down dashboard + results | ✅ (demo video: [script ready](docs/DEMO_SCRIPT.md)) |
 
 ## Cost
 
