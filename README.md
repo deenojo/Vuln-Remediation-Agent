@@ -77,7 +77,8 @@ On the demo app, 1 of 5 fixes auto-merges (jinja2, a patch bump). pyyaml, reques
 
 | Run | Result |
 | --- | --- |
-| `scan` workflow, demo repo + image | **821 raw findings → 737 unique** (84 cross-scanner duplicates merged): 39 Critical, 265 High, 391 fixable |
+| `scan` workflow, demo repo + image | **977 raw findings → 793 unique** (184 cross-scanner duplicates merged, after fixing two dedupe bugs that only showed up on real data) |
+| `remediate` on the real scan | **6 fix PRs opened (#1–#6), all routed to human review** by the policy gate. CI then proved why: 5 of the 6 newest-version bumps **fail to build** (dependency conflicts, Python-version floors). Only pyyaml 5.3.1 → 5.4, the fix for the reachable Critical, passes |
 | `heal` workflow, demo image | **287 fixable OS CVEs → 0** after the Copa patch, verified by re-scan with no new High/Critical; signed with cosign (keyless) and rolled out to kind with zero downtime |
 
 ## What works today (Week 6)

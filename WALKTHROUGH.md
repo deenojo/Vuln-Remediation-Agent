@@ -120,6 +120,7 @@ Running the remediation on the real nightly scan opened **6 PRs (#1–#6), and a
 - The pins are about six years old, so the version that fixes *all* advisories is usually a **major** bump (flask 0.12 → 3.1, jinja2 2.10 → 3.1, pillow 8 → 13), and majors always need a human.
 - **pyyaml 5.3.1 → 5.4** is only a minor bump, but it fixes the reachable Critical, so it's the one to review and merge first.
 - **3 fixes had no file to edit** (certifi, urllib3, idna). osv-scanner v2 resolves *transitive* dependencies, which aren't pinned in `requirements.txt`. They get fixed by bumping their parent (requests). The code now cleans up instead of leaving empty branches.
+- **CI proved the gate right:** the required checks failed on 5 of the 6 PRs (e.g. flask 3.1 needs itsdangerous ≥ 2.2 but the file pins 1.1.0; newer requests/pillow need a newer Python). Only the pyyaml PR is green. If these had auto-merged on risk score alone, the build would have broken five times.
 - Next improvement: target the **smallest** version that fixes the urgent advisories instead of the newest one that fixes all of them. That turns many majors into reviewable minors.
 
 ### Known limitations
