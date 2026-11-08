@@ -23,6 +23,16 @@ def _q(conn, sql, *args):
         return []  # table not created yet (e.g. no triage has run)
 
 
+def app_of(target: str, target_type: str) -> str:
+    """Map a finding's target to the app it belongs to.
+    repo:  targets/<app>/requirements.txt -> <app>;  image: <app>:<tag> or registry/<app>:<tag> -> <app>"""
+    if target_type == "image":
+        name = target.rsplit("/", 1)[-1].split(":", 1)[0]
+        return name.removesuffix("-patched")
+    parts = target.replace("\\", "/").split("/")
+    return parts[1] if len(parts) > 2 and parts[0] == "targets" else parts[0]
+
+
 def collect(db: str | Path) -> dict:
     conn = sqlite3.connect(str(db))
     conn.row_factory = sqlite3.Row
@@ -50,7 +60,30 @@ def collect(db: str | Path) -> dict:
         WHERE action='patch_and_verify' ORDER BY id DESC LIMIT 5""")]
     for h in heals:
         h["details"] = json.loads(h["details"])
+    # per-app view: so a newly added target reads as "new app", not as a regression
+    rows = _q(conn, "SELECT target, target_type, severity, first_seen, resolved_at FROM findings")
+    apps: dict[str, dict] = {}
+    for r in rows:
+        a = apps.setdefault(app_of(r["target"], r["target_type"]),
+                            {"open": 0, "open_ch": 0, "resolved": 0, "first_seen": r["first_seen"], "rows": []})
+        a["first_seen"] = min(a["first_seen"], r["first_seen"])
+        a["rows"].append(r)
+        if r["resolved_at"] is None:
+            a["open"] += 1
+            a["open_ch"] += r["severity"] in ("CRITICAL", "HIGH")
+        else:
+            a["resolved"] += 1
+    for a in apps.values():
+        pts = []
+        for t in scans:
+            if t < a["first_seen"]:
+                continue
+            pts.append(sum(1 for r in a["rows"] if r["severity"] in ("CRITICAL", "HIGH") and r["first_seen"] <= t
+                           and (r["resolved_at"] is None or r["resolved_at"] > t)))
+        a["trend"] = pts
+        del a["rows"]
     return {
+        "apps": apps,
         "series": series, "open_by_sev": open_by_sev, "fixable": fixable[0]["c"] if fixable else 0,
         "mttr": mttr, "resolved_total": resolved_total[0]["c"] if resolved_total else 0,
         "triage": triage, "heals": heals,
@@ -98,6 +131,31 @@ def _bars(counts: dict[str, int]) -> str:
                     f"<span class='track'><span class='fill' style='width:{100 * c / total:.1f}%;"
                     f"background:{SEV_COLOR[sev]}'></span></span><span class='num'>{c}</span></div>")
     return "".join(rows) or "<p class='muted'>No open findings.</p>"
+
+
+def _spark(points: list[int], w: int = 140, h: int = 28) -> str:
+    if len(points) < 2:
+        return "<span class='muted'>new</span>"
+    top = max(max(points), 1)
+    step = (w - 4) / (len(points) - 1)
+    pts = " ".join(f"{2 + i * step:.1f},{2 + (1 - p / top) * (h - 4):.1f}" for i, p in enumerate(points))
+    color = "#067647" if points[-1] < points[0] else ("#b42318" if points[-1] > points[0] else "#667085")
+    return f"<svg viewBox='0 0 {w} {h}' width='{w}' height='{h}'><polyline points='{pts}' fill='none' stroke='{color}' stroke-width='2'/></svg>"
+
+
+def _apps_table(apps: dict) -> str:
+    if not apps:
+        return "<p class='muted'>No findings yet.</p>"
+    rows = []
+    for name, a in sorted(apps.items(), key=lambda kv: -kv[1]["open_ch"]):
+        t = a["trend"]
+        change = (f"{t[0]} → {t[-1]}" if len(t) > 1 else "first scan")
+        rows.append(f"<tr><td><code>{html.escape(name)}</code></td><td class='num'>{a['open']}</td>"
+                    f"<td class='num'>{a['open_ch']}</td><td class='num'>{a['resolved']}</td>"
+                    f"<td>{_spark(t)}</td><td>{change}</td><td class='muted'>{html.escape(a['first_seen'][:10])}</td></tr>")
+    return ("<table><tr><th>App</th><th>Open</th><th>Open Crit+High</th><th>Resolved</th><th>Crit+High trend</th>"
+            "<th>Change</th><th>First scanned</th></tr>" + "".join(rows) + "</table>"
+            "<p class='muted'>A new app adds findings to the totals above. Read the burn-down per app here.</p>")
 
 
 # ------------------------------------------------------------------ page
@@ -177,7 +235,8 @@ def render(data: dict, redteam: dict | None = None) -> str:
 <div class='kpi'><b>{reduction}</b><span>Critical + High burned down from peak</span></div>
 <div class='kpi'>{mttr_kpi}</div>
 </div>
-<section><h2>Burn-down: open Critical and High</h2>{_line_chart(s)}</section>
+<section><h2>Burn-down: open Critical and High (all apps)</h2>{_line_chart(s)}</section>
+<section><h2>By app</h2>{_apps_table(data.get('apps', {}))}</section>
 <section><h2>Open findings by severity</h2>{_bars(data['open_by_sev'])}
 <p class='muted'>{data['fixable']} of {open_total} open findings have a fix available. {data['resolved_total']} resolved so far.</p></section>
 <section><h2>Mean time to remediate by severity</h2><table>{mttr_rows}</table></section>
