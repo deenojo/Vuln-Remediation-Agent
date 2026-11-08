@@ -4,6 +4,8 @@ Which packages are actually *used* matters: the Week 2 triage agent checks reach
 so pyyaml/requests (used below) should rank higher than pillow (installed, never imported).
 """
 
+import os
+
 import requests
 import yaml
 from flask import Flask, jsonify, request
@@ -18,6 +20,11 @@ def load_config():
     return jsonify(data)
 
 
+@app.route("/healthz")
+def healthz():
+    return "ok"
+
+
 @app.route("/fetch")
 def fetch():
     url = request.args.get("url", "https://example.com")
@@ -25,4 +32,4 @@ def fetch():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000)
+    app.run(host=os.environ.get("HOST", "127.0.0.1"), port=5000)

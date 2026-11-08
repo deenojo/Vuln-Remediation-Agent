@@ -1,0 +1,40 @@
+# Demo deployment for the self-healing loop on a local kind cluster.
+# The image is loaded into kind directly (`kind load docker-image`), so no registry pull is needed.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo
+  labels: {app: demo}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: demo}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}   # old pod keeps serving until the new one is ready
+  template:
+    metadata:
+      labels: {app: demo}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+      containers:
+        - name: app
+          image: IMAGE_PLACEHOLDER
+          imagePullPolicy: IfNotPresent
+          ports: [{containerPort: 5000}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: 5000}
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: 5000}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 250m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}

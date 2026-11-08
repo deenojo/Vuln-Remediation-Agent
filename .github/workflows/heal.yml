@@ -1,0 +1,91 @@
+name: heal
+
+# Container self-healing demo, end to end, for $0:
+# build -> push to GHCR -> deploy to kind -> Copa patch OS CVEs -> re-scan/verify
+#       -> push + cosign keyless sign -> roll out to kind (auto-rollback on failure)
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write      # push images to ghcr.io
+  id-token: write      # cosign keyless signing via GitHub OIDC
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/patchwarden-demo:${{ github.run_number }}
+  CLUSTER: patchwarden
+
+jobs:
+  heal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]" && pytest -q
+
+      - name: Install trivy + copa
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+          gh release download -R project-copacetic/copacetic --pattern '*linux_amd64.tar.gz' -O copa.tgz
+          tar -xzf copa.tgz copa && sudo mv copa /usr/local/bin/
+          trivy --version && copa --version
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build + push the vulnerable image
+        run: |
+          docker build -t "$IMAGE" targets/demo-vulnerable-app
+          docker push "$IMAGE"
+
+      - name: Create kind cluster and deploy the vulnerable version
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: ${{ env.CLUSTER }}
+      - run: |
+          kind load docker-image "$IMAGE" --name "$CLUSTER"
+          sed "s|IMAGE_PLACEHOLDER|$IMAGE|" k8s/demo-app.yaml | kubectl apply -f -
+          kubectl rollout status deployment/demo --timeout=180s
+
+      - name: Start BuildKit for Copa
+        run: |
+          docker run --detach --rm --privileged --name buildkitd --entrypoint buildkitd moby/buildkit:latest
+          sleep 5
+
+      - name: Self-heal (patch -> verify -> sign -> roll out)
+        run: |
+          patchwarden heal "$IMAGE" \
+            --buildkit-addr docker-container://buildkitd \
+            --push --sign \
+            --deployment demo --kind-cluster "$CLUSTER"
+
+      - name: Verify signature
+        run: |
+          cosign verify "${IMAGE}-patched" \
+            --certificate-identity-regexp "https://github.com/${{ github.repository }}/" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+      - name: Show result
+        if: always()
+        run: |
+          kubectl get deploy demo -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+          python - <<'PY'
+          import sqlite3, json
+          c = sqlite3.connect("data/findings.db")
+          for r in c.execute("select at, actor, action, outcome, details from audit order by id"):
+              print(r[0], r[1], r[2], r[3]); print("  ", json.loads(r[4]).get("steps"))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: heal-reports
+          path: |
+            reports/
+            data/findings.db

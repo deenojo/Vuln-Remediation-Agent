@@ -156,6 +156,43 @@ def cmd_remediate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_heal(args: argparse.Namespace) -> int:
+    import os
+
+    from vra.audit import AuditLog
+    from vra.heal import heal_image
+    from vra.policy import load_policy
+
+    policy = load_policy(args.policy)
+    rule = (policy.get("auto_merge") or {}).get("os_patch", {})
+    automation_on = (
+        policy.get("auto_merge_enabled", False)
+        and rule.get("allowed", False)
+        and os.environ.get("VRA_AUTOMERGE_DISABLED") != "1"
+    )
+    audit = AuditLog(args.db)
+    if not automation_on:
+        print("Policy blocks automatic OS patching (kill switch or os_patch not allowed). Nothing done.")
+        audit.record("policy", "heal_blocked", args.image, "skipped")
+        return 0
+    res = heal_image(
+        args.image, workdir=args.workdir, patched_tag=args.patched_tag,
+        buildkit_addr=args.buildkit_addr, push=args.push, sign=args.sign,
+        deployment=args.deployment, container=args.container, kind_cluster=args.kind_cluster,
+    )
+    for step in res.steps:
+        print(" -", step)
+    v = res.verification
+    if v:
+        print(f"Verification: {'PASSED' if v.passed else 'FAILED'} | before {v.before_count} -> after "
+              f"{v.after_count} fixable OS findings | " + "; ".join(v.reasons))
+    audit.record("image-heal", "patch_and_verify", args.image, "ok" if res.ok else "failed",
+                 patched=res.patched_image, fixed=len(v.fixed) if v else 0,
+                 still_present=v.still_present if v else [], introduced=v.introduced if v else [],
+                 signed=res.signed, deployed=res.deployed, rolled_back=res.rolled_back, steps=res.steps)
+    return 0 if (res.ok or (v and not v.fixed and not v.still_present)) else 1
+
+
 def subprocess_push(branch: str, repo_root: str) -> None:
     import subprocess
 
@@ -203,6 +240,19 @@ def main(argv: list[str] | None = None) -> int:
     rm.add_argument("--base", default="main")
     rm.add_argument("--show-body", action="store_true")
     rm.set_defaults(func=cmd_remediate)
+
+    hl = sub.add_parser("heal", help="Patch OS CVEs in an image (Copa), verify, sign, deploy")
+    hl.add_argument("image")
+    hl.add_argument("--policy", default="policy/policy.yaml")
+    hl.add_argument("--workdir", default="reports")
+    hl.add_argument("--patched-tag")
+    hl.add_argument("--buildkit-addr", help="e.g. docker-container://buildkitd")
+    hl.add_argument("--push", action="store_true", help="docker push the patched image")
+    hl.add_argument("--sign", action="store_true", help="cosign sign the patched image")
+    hl.add_argument("--deployment", help="Kubernetes deployment to roll out to")
+    hl.add_argument("--container", default="app")
+    hl.add_argument("--kind-cluster", help="Load the patched image into this kind cluster before rollout")
+    hl.set_defaults(func=cmd_heal)
 
     args = parser.parse_args(argv)
     return args.func(args)
