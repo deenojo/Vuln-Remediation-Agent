@@ -2,9 +2,9 @@
 
 **Self-Healing Vulnerability Remediation Agent**
 
-[![Patchwarden 30-second demo](docs/demo-preview.gif)](docs/patchwarden-demo.mp4)
+[![Patchwarden demo](docs/demo-preview.gif)](https://youtu.be/qShgD-97AX4)
 
-**[▶ Watch the full 3-minute demo](docs/patchwarden-demo.mp4)** · **[📊 Live dashboard](https://deenojo.github.io/Vulnerability-Remediation-Agent/)**: burn-down, MTTR, triage and self-healing results, rebuilt nightly by CI.
+**[▶ Watch the full 3-minute demo on YouTube](https://youtu.be/qShgD-97AX4)** · **[📊 Live dashboard](https://deenojo.github.io/Vulnerability-Remediation-Agent/)**: burn-down, MTTR, triage and self-healing results, rebuilt nightly by CI.
 
 Companion project: **[Promptwall](https://github.com/deenojo/PromptWall)**, a runtime security gateway for LLM features.
 
@@ -143,7 +143,7 @@ vra ingest --trivy-fs tests/fixtures/trivy-fs.json \
 | 3 | Dependency remediation: fix PRs + policy gate | ✅ |
 | 4 | Container self-healing: Copa patch → re-scan → Cosign → deploy (kind/AKS) | ✅ |
 | 5 | Guardrails, prompt-injection red-team, STRIDE threat model | ✅ |
-| 6 | Burn-down dashboard + results + demo video | ✅ ([video](docs/patchwarden-demo.mp4), [script](docs/DEMO_SCRIPT.md)) |
+| 6 | Burn-down dashboard + results + demo video | ✅ ([video](https://youtu.be/qShgD-97AX4), [script](docs/DEMO_SCRIPT.md)) |
 
 ## Cost
 
