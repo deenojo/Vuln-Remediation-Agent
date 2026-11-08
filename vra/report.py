@@ -133,7 +133,7 @@ def render(data: dict, redteam: dict | None = None) -> str:
     open_total = sum(data["open_by_sev"].values())
     crit_high = data["open_by_sev"].get("CRITICAL", 0) + data["open_by_sev"].get("HIGH", 0)
     peak = max((r["CRITICAL"] + r["HIGH"] for r in s), default=crit_high)
-    reduction = f"{100 * (peak - crit_high) / peak:.0f}%" if peak else "n/a"
+    reduction = f"{100 * (peak - crit_high) / peak:.0f}%" if peak else "0%"
     all_mttr = [v for v in data["mttr"].values() if v is not None]
     mttr = _fmt_h(sum(all_mttr) / len(all_mttr)) if all_mttr else None
     mttr_kpi = (f"<b>{mttr}</b><span>mean time to remediate</span>" if mttr else
@@ -184,7 +184,7 @@ def render(data: dict, redteam: dict | None = None) -> str:
 <section><h2>Latest triage decisions</h2><table>{triage_rows}</table></section>
 <section><h2>Container self-healing</h2><table><tr><th>When</th><th>Image</th><th>Result</th><th>Status</th></tr>{heal_rows}</table></section>
 {rt}
-<footer>Generated {generated} by <code>patchwarden report</code>. Source: github.com/deenojo/vuln-remediation-agent</footer>
+<footer>Generated {generated} by <code>patchwarden report</code>. Source: <a href='https://github.com/deenojo/Vuln-Remediation-Agent'>github.com/deenojo/Vuln-Remediation-Agent</a></footer>
 </main></body></html>"""
 
 
