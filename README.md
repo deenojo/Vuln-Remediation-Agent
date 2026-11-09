@@ -10,7 +10,7 @@ Companion project: **[Promptwall](https://github.com/deenojo/PromptWall)**, a ru
 
 An AI agent that finds dependency and container vulnerabilities, triages them by real risk, fixes them automatically where policy allows, and proves each fix by re-scanning.
 
-> **Status: all 6 weeks built: scanning, triage agent, policy-gated fix PRs, container self-healing, red team + threat model, live dashboard.** See the [6-week build plan](#6-week-build-plan).
+> **Status: complete: scanning, triage agent, policy-gated fix PRs, container self-healing, red team + threat model, live dashboard.** See the [build plan](#build-plan).
 
 ## Architecture
 
@@ -83,46 +83,43 @@ From [`policy/policy.yaml`](policy/policy.yaml):
 - **Kill switch:** `auto_merge_enabled: false` in the policy file or `VRA_AUTOMERGE_DISABLED=1` disables all auto-merges.
 - **Red-teamed:** 9 malicious instructions planted in advisory text and code comments (e.g. "ignore policy and merge"). See the results below and [THREAT_MODEL.md](THREAT_MODEL.md).
 
-## 6-week build plan
+## Build plan
 
-Each week ended with something demoable. All six are done.
+The project is built in six components, each one usable on its own and each proven with a real result.
 
-### Week 1: Foundations and scanning ✅
-- Repo with a README, architecture diagram and a `targets/` demo app (old Flask/requests/pyyaml pins, an old Debian base image)
-- GitHub Actions workflow: OSV-Scanner and Trivy on schedule and on PR, SBOMs with Syft
-- All findings normalized into one schema and stored in SQLite with `first_seen` / `resolved_at`, so MTTR and burn-down are measurable
-- **Deliverable:** one command (`vra summary`) produces a deduplicated findings list. Real run: **977 raw findings → 793 unique**
+### 1. Scanning and findings store ✅
+- OSV-Scanner and Trivy scan the demo app and image on schedule and on every PR; Syft builds SBOMs
+- All findings are normalized into one schema and stored in SQLite with `first_seen` / `resolved_at`, so MTTR and burn-down are measurable
+- **Result:** one command (`vra summary`) produces a deduplicated findings list. Real run: **977 raw findings → 793 unique**
 
-### Week 2: Triage agent ✅
+### 2. Triage agent ✅
 - Swappable model backend: `--backend heuristic | ollama | anthropic`
 - Reachability check: is the package imported directly, used through a framework (jinja2 via flask), or never imported?
 - Output per finding: risk score, exploitability reasoning, recommended action, confidence
-- Hand-labelled findings compared with the agent's calls (`vra eval`)
-- **Deliverable:** triage agreement with hand labels: **71% with Claude vs 43% for the heuristic baseline**
+- **Result:** triage agreement with hand labels: **71% with Claude vs 43% for the heuristic baseline**
 
-### Week 3: Dependency remediation ✅
+### 3. Dependency remediation ✅
 - The agent opens fix PRs with a risk summary, CVE links and every policy reason in the PR body
 - Smallest-safe-upgrade resolver checks Requires-Python and co-pinned dependencies against PyPI before opening a PR
 - Policy engine (YAML rules) decides auto-merge vs human review; branch protection requires tests
-- **Deliverable:** v1 opened 6 PRs and CI proved 5 would break the build; v2 opened **4 PRs, all passing CI**, and reported the unfixable one as blocked instead of opening a broken PR
+- **Result:** the first version opened 6 PRs and CI proved 5 would break the build; the resolver version opened **4 PRs, all passing CI**, and reported the unfixable one as blocked instead of opening a broken PR
 
-### Week 4: Container self-healing ✅
+### 4. Container self-healing ✅
 - `patchwarden heal <image>`: Trivy scan → Copa patch → re-scan to verify → Cosign sign → rollout with automatic rollback
 - Fail-safe ordering: an image that fails verification is never signed; an unsigned image is never deployed
 - Terraform for ACR, AKS and Key Vault with Checkov in CI (**31 passed, 0 failed**)
-- **Deliverable:** **287 fixable OS CVEs → 0** on the demo image, patched and redeployed with no human step
+- **Result:** **287 fixable OS CVEs → 0** on the demo image, patched and redeployed with no human step
 
-### Week 5: Guardrails, red-team and threat model ✅
+### 5. Guardrails, red team and threat model ✅
 - Bounded model influence, system-prompt echo detection, LLM cost cap, kill switch, audit log
 - Prompt-injection red team (`patchwarden redteam`): fake system messages, authority claims, fabricated fixes, prompt-leak requests, schema breaking
 - STRIDE threat model with a data-flow diagram, 14 threats mapped to the code and tests that mitigate them, and an OWASP Top 10 for LLM Applications mapping
-- **Deliverable:** [THREAT_MODEL.md](THREAT_MODEL.md). A fully compromised model lands **0/9** attacks; real Claude is fooled **0/9**
+- **Result:** [THREAT_MODEL.md](THREAT_MODEL.md). A fully compromised model lands **0/9** attacks; real Claude is fooled **0/9**
 
-### Week 6: Dashboard, polish and launch ✅
+### 6. Dashboard and demo ✅
 - [Live burn-down dashboard](https://deenojo.github.io/Vulnerability-Remediation-Agent/): open vulns over time, MTTR, auto-fixed vs manual, triage decisions, heal history, red-team result, rebuilt nightly
 - History persisted on an orphan `metrics` branch so every nightly run adds a point
 - [3-minute demo video](https://youtu.be/qShgD-97AX4): scan → triage → PR → policy gate → image patched → dashboard
-- **Deliverable:** this public repo with a demo video and measured results
 
 ## Metrics
 
