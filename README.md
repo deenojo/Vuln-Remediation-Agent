@@ -14,26 +14,9 @@ An AI agent that finds dependency and container vulnerabilities, triages them by
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    Trigger["Nightly, on PR,<br/>or new CVE"] --> Scan["<b>Scan</b><br/>Trivy · OSV · Syft"]
-    Scan --> Triage["<b>Triage agent</b><br/>reachability + risk"]
-    Triage --> Gate{"<b>Policy gate</b><br/>plain code"}
-    Gate -->|low risk| AutoFix["<b>Auto-fix</b><br/>PR or Copa patch"]
-    Gate -->|needs review| Review["<b>Human review</b><br/>agent drafts the PR"]
-    AutoFix --> Verify["<b>Verify</b><br/>tests · re-scan · sign"]
-    Review -->|approved| Verify
-    Verify -->|fails| Review
-    Verify --> Deploy["<b>Deploy to AKS</b><br/>auto-rollback"]
-    Deploy --> Dashboard["<b>Dashboard</b><br/>audit log · MTTR"]
+![Patchwarden architecture](docs/architecture.svg)
 
-    classDef node fill:#0c0d0f,stroke:#4b5563,color:#f8fafc,stroke-width:1.5px;
-    classDef triage fill:#111827,stroke:#3b82f6,color:#f8fafc,stroke-width:3px;
-    classDef gate fill:#0c0d0f,stroke:#6b7280,color:#f8fafc,stroke-width:1.5px;
-    class Trigger,Scan,AutoFix,Review,Verify,Deploy,Dashboard node;
-    class Triage triage;
-    class Gate gate;
-```## What works today (Week 1)
+## What works today (Week 1)
 
 - **Parsers** for Trivy (filesystem and image) and osv-scanner JSON reports.
 - **Normalization:** one `Finding` model across scanners, with GHSA→CVE ID mapping, path normalization (Trivy reports relative paths, osv-scanner absolute ones) and cross-scanner deduplication.
