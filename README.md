@@ -14,31 +14,26 @@ An AI agent that finds dependency and container vulnerabilities, triages them by
 
 ## Architecture
 
-```
- trigger (nightly / PR / new CVE)
-        │
-        ▼
- ┌────────────┐   ┌───────────────┐   ┌─────────────┐  low risk  ┌───────────┐
- │    Scan    │──▶│ Triage agent  │──▶│ Policy gate │──────────▶│ Auto-fix  │
- │ Trivy, OSV │   │ reachability  │   │ (plain code)│            │ PR / Copa │
- │ Syft SBOM  │   │ + risk (LLM)  │   └──────┬──────┘            └─────┬─────┘
- └────────────┘   └───────────────┘          │ needs review            ▼
-                                             ▼                 ┌──────────────┐
-                                      ┌──────────────┐ approved│    Verify    │
-                                      │ Human review │────────▶│ tests,       │
-                                      │ agent drafts │◀────────│ re-scan, sign│
-                                      └──────────────┘  fails  └──────┬───────┘
-                                                                      ▼
-                                      ┌──────────────┐        ┌──────────────┐
-                                      │  Dashboard   │◀───────│   Deploy     │
-                                      │ MTTR, burn-  │        │ auto-rollback│
-                                      │ down, audit  │        └──────────────┘
-                                      └──────────────┘
-```
+```mermaid
+flowchart TB
+    Trigger["Nightly, on PR,<br/>or new CVE"] --> Scan["<b>Scan</b><br/>Trivy · OSV · Syft"]
+    Scan --> Triage["<b>Triage agent</b><br/>reachability + risk"]
+    Triage --> Gate{"<b>Policy gate</b><br/>plain code"}
+    Gate -->|low risk| AutoFix["<b>Auto-fix</b><br/>PR or Copa patch"]
+    Gate -->|needs review| Review["<b>Human review</b><br/>agent drafts the PR"]
+    AutoFix --> Verify["<b>Verify</b><br/>tests · re-scan · sign"]
+    Review -->|approved| Verify
+    Verify -->|fails| Review
+    Verify --> Deploy["<b>Deploy to AKS</b><br/>auto-rollback"]
+    Deploy --> Dashboard["<b>Dashboard</b><br/>audit log · MTTR"]
 
-**Key design rule:** the LLM *recommends*; a deterministic policy engine (the *warden*) *decides*. The model can never merge or deploy on its own judgment.
-
-## What works today (Week 1)
+    classDef node fill:#0c0d0f,stroke:#4b5563,color:#f8fafc,stroke-width:1.5px;
+    classDef triage fill:#111827,stroke:#3b82f6,color:#f8fafc,stroke-width:3px;
+    classDef gate fill:#0c0d0f,stroke:#6b7280,color:#f8fafc,stroke-width:1.5px;
+    class Trigger,Scan,AutoFix,Review,Verify,Deploy,Dashboard node;
+    class Triage triage;
+    class Gate gate;
+```## What works today (Week 1)
 
 - **Parsers** for Trivy (filesystem and image) and osv-scanner JSON reports.
 - **Normalization:** one `Finding` model across scanners, with GHSA→CVE ID mapping, path normalization (Trivy reports relative paths, osv-scanner absolute ones) and cross-scanner deduplication.
