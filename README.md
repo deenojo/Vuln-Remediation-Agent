@@ -10,84 +10,157 @@ Companion project: **[Promptwall](https://github.com/deenojo/PromptWall)**, a ru
 
 An AI agent that finds dependency and container vulnerabilities, triages them by real risk, fixes them automatically where policy allows, and proves each fix by re-scanning.
 
-> **Status: all 6 weeks built: scanning, triage agent, policy-gated fix PRs, container self-healing, red team + threat model, live dashboard.** See the [roadmap](#roadmap).
+> **Status: all 6 weeks built: scanning, triage agent, policy-gated fix PRs, container self-healing, red team + threat model, live dashboard.** See the [6-week build plan](#6-week-build-plan).
 
 ## Architecture
 
+The pipeline runs on a schedule, on every PR and when a new CVE feed entry lands. The Claude agent only recommends; a deterministic policy gate decides whether a fix ships automatically or goes to a human.
+
+### The LLM recommends, a code policy gate decides, every fix is verified
+
 ![Patchwarden architecture](docs/architecture.svg)
 
-## What works today (Week 1)
+<sub>remediation pipeline · 8 stages, 1 policy decision</sub>
 
-- **Parsers** for Trivy (filesystem and image) and osv-scanner JSON reports.
-- **Normalization:** one `Finding` model across scanners, with GHSA→CVE ID mapping, path normalization (Trivy reports relative paths, osv-scanner absolute ones) and cross-scanner deduplication.
-- **SQLite lifecycle store:** each finding gets `first_seen`, `last_seen` and `resolved_at`. A finding that disappears from a scan is marked resolved, not deleted, which is what makes MTTR and burn-down measurable. Resolution is scoped, so scanning repo A never resolves findings in repo B, and regressions are counted as new.
-- **CLI:** `vra ingest`, `vra list`, `vra summary`.
-- **CI:** GitHub Actions runs the tests, then all scanners nightly and on every push and PR, and uploads the reports and database as artifacts.
-- **Demo target:** `targets/demo-vulnerable-app`, a deliberately outdated Flask app plus an old Debian-based image.
+A fix that fails verification (tests break, re-scan still shows the CVE, or a new Critical appears) is routed to human review instead of shipping. Every step writes to the audit log that feeds the dashboard.
 
-## What works today (Week 2)
+1. **Scan:** OSV-Scanner and Trivy scan repos and images; Syft builds an SBOM. Findings are normalized and deduplicated (`vra/parsers`, `vra/normalize.py`).
+2. **Triage agent:** Claude checks whether the vulnerable package is actually used, weighs exploitability, and outputs a risk score, recommended fix and confidence (`vra/reachability.py`, `vra/triage.py`).
+3. **Policy gate:** plain code applies the auto-merge rules in the guardrails section. The LLM cannot override it (`vra/policy.py`, `policy/policy.yaml`).
+4. **Auto-fix:** a dependency bump PR using the smallest safe upgrade, or a Copa patch for OS packages in an image (`vra/resolve.py`, `vra/remediate.py`, `vra/heal.py`).
+5. **Human review:** the agent drafts the PR with its reasoning; you approve or reject.
+6. **Verify:** tests pass, a re-scan confirms the CVE is gone, and the image is signed with Cosign.
+7. **Deploy:** the patched image rolls out to Kubernetes (kind in CI, AKS-ready), with automatic rollback if the rollout fails.
+8. **Dashboard:** burn-down, MTTR and auto-fix rate from the audit log ([live](https://deenojo.github.io/Vulnerability-Remediation-Agent/)).
 
-- **Reachability check** (`vra/reachability.py`): AST-based, so it knows whether each Python package is imported directly, used through a framework (jinja2 via flask) or never imported, and it pulls the lines where the package is used as evidence. OS packages are honestly marked `unknown`.
-- **Triage** (`vra/triage.py`): a heuristic baseline (always available, $0), plus an optional LLM pass. The model returns strict JSON that is schema-validated, clamped and run through guardrails before use.
-- **Swappable model backend** (`vra/llm.py`): `--backend heuristic | ollama | anthropic`.
-- **Guardrails:** advisory text is fenced as untrusted and can't close the fence; malformed output, an out-of-range score or an API error falls back to the heuristic; the model can't invent a fix or talk a reachable Critical down to "monitor".
-- **Evaluation:** `vra eval` compares the latest triage with hand labels (`eval/labels.csv`).
+## Tech stack
 
-```bash
-vra triage --code-root targets/demo-vulnerable-app -v                       # heuristic, $0
-ANTHROPIC_API_KEY=... vra triage --backend anthropic --code-root targets/demo-vulnerable-app -v
-vra triage --backend ollama --code-root targets/demo-vulnerable-app -v      # local model, $0
-vra eval --labels eval/labels.csv
+Everything here is free or open source. The whole pipeline runs for $0 in GitHub Actions; the Claude API is optional and capped per run.
+
+| Layer | Tool | Why |
+| --- | --- | --- |
+| Scanning (code deps) | OSV-Scanner, Trivy | Free, wide ecosystem coverage, JSON output |
+| Scanning (images) | Trivy | OS and language packages in one pass |
+| SBOM | Syft (CycloneDX format) | Lets the agent check what is actually installed |
+| Triage agent | Python + Claude API (or a local Ollama model) | Reasoning over CVE text, SBOM and code usage |
+| Reachability check | Python AST analysis | Is the vulnerable package actually imported, directly or through a framework? |
+| Dependency fixes | PRs the agent opens through the GitHub API | Standard review flow; the agent adds risk context and picks the smallest safe version |
+| Image patching | Copacetic (Copa) | Patches OS CVEs in images without a full rebuild |
+| Signing | Cosign (Sigstore, keyless via GitHub OIDC) | Proves the patched image came from this pipeline |
+| CI/CD | GitHub Actions | Runs scans on schedule, on PR and on new CVE feeds |
+| Registry + runtime | In-job registry + kind (CI); ACR + AKS (Terraform) | $0 in CI, same manifests on Azure |
+| Policy | YAML rules file (`policy/policy.yaml`) | Decides auto-merge vs human review |
+| IaC + baseline | Terraform, Checkov | Customer-cloud security baseline |
+| Data + dashboard | SQLite + static HTML on GitHub Pages | Burn-down and MTTR charts, no server to run |
+| Demo targets | `targets/demo-vulnerable-app` (deliberately outdated Flask app + old Debian image) | Guarantees real findings to fix |
+
+Scanner versions are pinned with SHA-256 checksums in `scanner/tools.lock`.
+
+## Guardrails and securing the agent
+
+An agent that can open PRs and redeploy images is itself an attack surface, so its own security is part of the project.
+
+### Auto-merge policy
+
+From [`policy/policy.yaml`](policy/policy.yaml):
+
+| Change type | Auto-merge? | Condition |
+| --- | --- | --- |
+| Patch version bump (x.y.Z) | Yes | Tests pass, risk score ≥ 30, confidence ≥ 0.5 |
+| OS package patch via Copa | Yes | Re-scan shows the CVE gone and no new Criticals, image signed |
+| Minor version bump (x.Y.z) | Human review | The agent attaches its risk summary to the PR |
+| Major version bump or code change | Human review | Always; the agent only drafts |
+| Agent unsure (confidence < 0.5) or recommends monitor | Human review | Default to safe |
+| Sensitive package (flask, django, cryptography, pyjwt…) | Human review | Always, whatever the bump |
+
+### Agent security controls
+
+- **Least privilege:** remediation is hard-blocked from editing anything except `requirements*.txt`, so it can never touch `policy/` or `.github/`. Branch protection means nothing merges without passing checks.
+- **No tools for the model:** the LLM gets evidence and returns strict, schema-validated JSON. It has no shell, no API access and no way to act on its own.
+- **Prompt-injection defense:** CVE descriptions, READMEs and code comments are treated as untrusted data, fenced so they can't close the fence, and never allowed to change the policy.
+- **Deterministic gate:** the LLM recommends; a plain-code policy engine decides. The model can move the evidence-based score by at most ±40 and can never talk a reachable Critical down to "monitor".
+- **Audit log:** every finding, decision, reason and action is written to the database, which also feeds the dashboard.
+- **Kill switch:** `auto_merge_enabled: false` in the policy file or `VRA_AUTOMERGE_DISABLED=1` disables all auto-merges.
+- **Red-teamed:** 9 malicious instructions planted in advisory text and code comments (e.g. "ignore policy and merge"). See the results below and [THREAT_MODEL.md](THREAT_MODEL.md).
+
+## 6-week build plan
+
+Each week ended with something demoable. All six are done.
+
+### Week 1: Foundations and scanning ✅
+- Repo with a README, architecture diagram and a `targets/` demo app (old Flask/requests/pyyaml pins, an old Debian base image)
+- GitHub Actions workflow: OSV-Scanner and Trivy on schedule and on PR, SBOMs with Syft
+- All findings normalized into one schema and stored in SQLite with `first_seen` / `resolved_at`, so MTTR and burn-down are measurable
+- **Deliverable:** one command (`vra summary`) produces a deduplicated findings list. Real run: **977 raw findings → 793 unique**
+
+### Week 2: Triage agent ✅
+- Swappable model backend: `--backend heuristic | ollama | anthropic`
+- Reachability check: is the package imported directly, used through a framework (jinja2 via flask), or never imported?
+- Output per finding: risk score, exploitability reasoning, recommended action, confidence
+- Hand-labelled findings compared with the agent's calls (`vra eval`)
+- **Deliverable:** triage agreement with hand labels: **71% with Claude vs 43% for the heuristic baseline**
+
+### Week 3: Dependency remediation ✅
+- The agent opens fix PRs with a risk summary, CVE links and every policy reason in the PR body
+- Smallest-safe-upgrade resolver checks Requires-Python and co-pinned dependencies against PyPI before opening a PR
+- Policy engine (YAML rules) decides auto-merge vs human review; branch protection requires tests
+- **Deliverable:** v1 opened 6 PRs and CI proved 5 would break the build; v2 opened **4 PRs, all passing CI**, and reported the unfixable one as blocked instead of opening a broken PR
+
+### Week 4: Container self-healing ✅
+- `patchwarden heal <image>`: Trivy scan → Copa patch → re-scan to verify → Cosign sign → rollout with automatic rollback
+- Fail-safe ordering: an image that fails verification is never signed; an unsigned image is never deployed
+- Terraform for ACR, AKS and Key Vault with Checkov in CI (**31 passed, 0 failed**)
+- **Deliverable:** **287 fixable OS CVEs → 0** on the demo image, patched and redeployed with no human step
+
+### Week 5: Guardrails, red-team and threat model ✅
+- Bounded model influence, system-prompt echo detection, LLM cost cap, kill switch, audit log
+- Prompt-injection red team (`patchwarden redteam`): fake system messages, authority claims, fabricated fixes, prompt-leak requests, schema breaking
+- STRIDE threat model with a data-flow diagram, 14 threats mapped to the code and tests that mitigate them, and an OWASP Top 10 for LLM Applications mapping
+- **Deliverable:** [THREAT_MODEL.md](THREAT_MODEL.md). A fully compromised model lands **0/9** attacks; real Claude is fooled **0/9**
+
+### Week 6: Dashboard, polish and launch ✅
+- [Live burn-down dashboard](https://deenojo.github.io/Vulnerability-Remediation-Agent/): open vulns over time, MTTR, auto-fixed vs manual, triage decisions, heal history, red-team result, rebuilt nightly
+- History persisted on an orphan `metrics` branch so every nightly run adds a point
+- [3-minute demo video](https://youtu.be/qShgD-97AX4): scan → triage → PR → policy gate → image patched → dashboard
+- **Deliverable:** this public repo with a demo video and measured results
+
+## Metrics
+
+| Metric | How it's measured | Result |
+| --- | --- | --- |
+| Mean time to remediate (MTTR) | Finding first seen → fix merged or deployed, by severity | ~1.1 hours on the demo targets |
+| Findings reduced by triage | Raw scanner findings vs findings the agent rated reachable or actionable | 977 raw → 793 unique before triage |
+| Triage accuracy | Agent decisions vs hand labels | 71% (Claude) vs 43% (heuristic) |
+| Auto-fix rate | Share of fixes merged or deployed with no human step | All Copa OS patches; 1 of 5 dependency fixes (the rest correctly routed to review) |
+| Critical/High burn-down | Open Critical+High at start vs end | 274 → 44 (−84%) on the demo app |
+| Injection resistance | Planted prompt-injection attempts that landed, out of total | 0/9 |
+
+## Repo layout
+
 ```
-
-**Result:** the heuristic agrees with the hand labels on 3 of 7 demo findings (43%); it over-escalates anything imported. **With Claude (Haiku) it's 5 of 7 (71%)**: it correctly lowered requests (no auth headers sent) and jinja2 (no sandboxed templates). The two remaining misses are useful too: pillow stays at `fix_soon` because the guardrails cap how far the model can lower an evidence-based score, which is the safety trade-off working as designed.
-
-## What works today (Week 3)
-
-- **Policy gate** (`vra/policy.py` + `policy/policy.yaml`): plain code decides `auto_merge`, `human_review` or `skip`, and records every reason. It looks at the bump type (patch/minor/major/OS patch), risk score, confidence, an always-review package list, and a kill switch (`auto_merge_enabled: false` or `VRA_AUTOMERGE_DISABLED=1`).
-- **Remediation** (`vra/remediate.py`): one PR per package, rewriting only the pin and keeping comments. The PR body carries the triage rationale and every policy reason. It is **hard-blocked** from editing anything but `requirements*.txt`, so it can never touch `policy/` or `.github/`.
-- **Modes:** `vra remediate --mode plan` (print), `commit` (local branches), `pr` (push + open labelled PRs).
-- **Workflow** `.github/workflows/remediate.yml`: scan → triage → PRs → enable auto-merge on `vra:auto-merge` PRs. Merges still wait for required checks.
-
-On the demo app, 1 of 5 fixes auto-merges (jinja2, a patch bump). pyyaml, requests and pillow are minor bumps and flask is on the always-review list, so those go to review.
-
-### One-time GitHub setup for PRs and auto-merge
-1. Settings → General → Pull Requests: enable **Allow auto-merge**.
-2. Settings → Actions → General → Workflow permissions: **Read and write**, and tick **Allow GitHub Actions to create and approve pull requests**.
-3. Settings → Branches: protect `main` and require the **test** check from the `scan` workflow.
-4. Recommended: add a fine-grained token as the secret `VRA_BOT_TOKEN` (contents + pull requests: read/write, this repo only). PRs opened with the default `GITHUB_TOKEN` don't trigger other workflows, so required checks wouldn't run on them.
-
-## Results so far (real CI runs)
-
-| Run | Result |
-| --- | --- |
-| `scan` workflow, demo repo + image | **977 raw findings → 793 unique** (184 cross-scanner duplicates merged, after fixing two dedupe bugs that only showed up on real data) |
-| `remediate` v2, smallest safe upgrade | **4 fix PRs (#7–#10), all passing CI**. Each picks the smallest compatible release (Requires-Python + co-pinned deps checked against PyPI metadata); werkzeug is reported **blocked** instead of opened as a broken PR. pyyaml (#1) merged: first resolved Critical |
-| `remediate` v1 on the real scan | **6 fix PRs opened (#1–#6), all routed to human review** by the policy gate. CI then proved why: 5 of the 6 newest-version bumps **fail to build** (dependency conflicts, Python-version floors). Only pyyaml 5.3.1 → 5.4, the fix for the reachable Critical, passes |
-| `live-eval` with real Claude (Haiku) | **Triage agreement with hand labels: 71% (5/7) vs 43% for the heuristic baseline.** Red team against the real model: **fooled 0/9, landed 0/9** |
-| `heal` workflow, demo image | **287 fixable OS CVEs → 0** after the Copa patch, verified by re-scan with no new High/Critical; signed with cosign (keyless) and rolled out to kind with zero downtime |
-
-## What works today (Week 6)
-
-- **Live dashboard** (`patchwarden report`): a static, self-contained HTML page (no JavaScript) with KPIs (open findings, open Critical + High, % burned down from peak, MTTR), a burn-down chart, severity breakdown, MTTR by severity, triage decisions, container-heal history and the red-team result.
-- **History that survives CI:** the findings DB is persisted on an orphan `metrics` branch (`scanner/metrics_db.sh`), so every nightly run adds a point to the burn-down. `heal.yml` writes its audit entries to the same DB.
-- **`dashboard.yml`** runs nightly: scan → triage → record → publish to **GitHub Pages** ($0).
-
-## What works today (Week 5)
-
-- **Prompt-injection red team** (`patchwarden redteam`, `eval/redteam/payloads.yaml`): 9 attacks planted in advisory titles and code comments (fake system messages, authority claims, false-positive claims, fabricated fixes, prompt-leak requests, schema breaking, control-character smuggling). Each one reports *model fooled* and *attack landed* separately.
-  - **Worst-case result: a fully compromised model** that obeys every attacker (fooled 9/9) **lands 0/8 safety-critical attacks** and 0/9 overall, because the guardrails don't depend on the model behaving.
-  - `patchwarden redteam --backend anthropic` measures how often a real model is fooled.
-- **Hardened guardrails:** bounded influence (the model can move the evidence-based score by at most ±40), a recommendation derived from the score, system-prompt echo detection, and an LLM cost cap (`--max-llm-calls`).
-- **[THREAT_MODEL.md](THREAT_MODEL.md):** data-flow diagram, trust boundaries, 14 STRIDE threats each mapped to the code and test that enforce the mitigation, an OWASP LLM Top 10 (2025) mapping, and residual risks.
-- **Customer-cloud security baseline** (`infra/azure`): Terraform for AKS (private, Azure RBAC, local accounts off, network policy, ephemeral + host-encrypted disks, Defender, auto-upgrade), ACR (no admin user, pull by identity only) and Key Vault (RBAC, purge protection, deny-by-default). **Checkov: 31 passed, 0 failed**; the 12 controls not met carry inline justifications (mostly Premium-SKU cost). CI validates it on every change and never applies it.
-
-## What works today (Week 4)
-
-- **`patchwarden heal <image>`** (`vra/heal.py`): Trivy OS scan → **Copa** patch (adds a patch layer, no Dockerfile rebuild) → re-scan and **verify** → push → **cosign** sign → `kubectl` rollout with **automatic rollback** if the rollout fails.
-- **Fail-safe ordering:** an image that fails verification is never signed; an unsigned image is never deployed.
-- **Audit log** (`vra/audit.py`): every step and outcome is recorded for the Week 6 dashboard.
-- **`heal.yml`**: the whole loop runs for $0 inside GitHub Actions, using a throwaway in-job registry, a kind cluster, BuildKit, and cosign keyless signing via GitHub OIDC.
+Vulnerability-Remediation-Agent/
+├── scanner/            # OSV, Trivy, Syft runners + pinned tools.lock
+├── vra/
+│   ├── parsers/        # scanner report parsers
+│   ├── normalize.py    # one Finding model + cross-scanner dedupe
+│   ├── store.py        # SQLite lifecycle (first_seen, resolved_at)
+│   ├── reachability.py # AST reachability check
+│   ├── triage.py       # heuristic + Claude triage with guardrails
+│   ├── llm.py          # anthropic / ollama / heuristic backends
+│   ├── policy.py       # deterministic policy gate
+│   ├── resolve.py      # smallest-safe-upgrade resolver
+│   ├── remediate.py    # fix-PR opener (requirements files only)
+│   ├── heal.py         # Copa patch, verify, Cosign, rollout + rollback
+│   ├── audit.py        # audit log
+│   ├── redteam.py      # prompt-injection red team
+│   └── report.py       # static dashboard
+├── policy/             # auto-merge rules (YAML)
+├── infra/azure/        # Terraform for ACR/AKS/Key Vault + Checkov
+├── eval/               # hand labels + red-team payloads
+├── .github/workflows/  # scan, remediate, heal, dashboard, iac, live-eval
+├── THREAT_MODEL.md
+└── README.md
+```
 
 ## Quick start
 
@@ -95,12 +168,13 @@ The CLI installs as both `patchwarden` and the short alias `vra`.
 
 ```bash
 pip install -e ".[dev]"
-pytest -q                                   # 57 tests, uses fixtures, no scanners needed
+pytest -q                                   # uses fixtures, no scanners needed
 
 # Full scan (needs trivy, osv-scanner, syft; docker for the image scan)
 bash scanner/run_scans.sh
-vra list --severity HIGH
 vra summary
+vra triage --code-root targets/demo-vulnerable-app -v          # heuristic, $0
+vra remediate --mode plan                                      # show the fixes and policy decisions
 ```
 
 Try it without installing scanners:
@@ -112,20 +186,11 @@ vra ingest --trivy-fs tests/fixtures/trivy-fs.json \
 # Ingested 8 raw findings -> 7 unique (1 duplicates merged). New: 7, resolved: 0
 ```
 
-## Roadmap
-
-| Week | Milestone | Status |
-| --- | --- | --- |
-| 1 | Scanning, normalization, findings DB, CI | ✅ |
-| 2 | Triage agent (Claude / local model): reachability + risk scoring | ✅ |
-| 3 | Dependency remediation: fix PRs + policy gate | ✅ |
-| 4 | Container self-healing: Copa patch → re-scan → Cosign → deploy (kind/AKS) | ✅ |
-| 5 | Guardrails, prompt-injection red-team, STRIDE threat model | ✅ |
-| 6 | Burn-down dashboard + results + demo video | ✅ ([video](https://youtu.be/qShgD-97AX4), [script](docs/DEMO_SCRIPT.md)) |
-
-## Cost
-
-Built to run for $0: open-source scanners, GitHub Actions (free on public repos), a local `kind` cluster instead of AKS, and a swappable model backend (local Ollama model for development, Claude for final runs).
+### One-time GitHub setup for PRs and auto-merge
+1. Settings → General → Pull Requests: enable **Allow auto-merge**.
+2. Settings → Actions → General → Workflow permissions: **Read and write**, and tick **Allow GitHub Actions to create and approve pull requests**.
+3. Settings → Branches: protect `main` and require the **test** check from the `scan` workflow.
+4. Recommended: add a fine-grained token as the secret `VRA_BOT_TOKEN` (contents + pull requests: read/write, this repo only). PRs opened with the default `GITHUB_TOKEN` don't trigger other workflows, so required checks wouldn't run on them.
 
 ## Design notes
 
