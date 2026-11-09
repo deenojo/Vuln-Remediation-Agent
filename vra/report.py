@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SEV_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
+DEFAULT_SLA_DAYS = {"CRITICAL": 7, "HIGH": 30, "MEDIUM": 90, "LOW": 180}
 SEV_COLOR = {"CRITICAL": "#b42318", "HIGH": "#dc6803", "MEDIUM": "#ca8504", "LOW": "#667085", "UNKNOWN": "#98a2b3"}
 
 
@@ -33,7 +34,41 @@ def app_of(target: str, target_type: str) -> str:
     return parts[1] if len(parts) > 2 and parts[0] == "targets" else parts[0]
 
 
-def collect(db: str | Path) -> dict:
+def load_sla(policy: str | Path | None) -> dict[str, int]:
+    """SLA days per severity from policy.yaml (`sla_days`), falling back to common defaults."""
+    if policy and Path(policy).exists():
+        import yaml
+
+        cfg = yaml.safe_load(Path(policy).read_text()) or {}
+        if cfg.get("sla_days"):
+            return {k.upper(): int(v) for k, v in cfg["sla_days"].items()}
+    return dict(DEFAULT_SLA_DAYS)
+
+
+def _days(a: str, b: str) -> float:
+    return (datetime.fromisoformat(b) - datetime.fromisoformat(a)).total_seconds() / 86400
+
+
+def sla_status(rows, sla: dict[str, int], now: str) -> dict[str, dict]:
+    """Per severity: open within SLA, open past SLA (breached), resolved on time, resolved late.
+    The clock starts at first_seen (when Patchwarden first detected the finding)."""
+    out: dict[str, dict] = {}
+    for r in rows:
+        limit = sla.get(r["severity"])
+        if limit is None:
+            continue
+        s = out.setdefault(r["severity"], {"sla_days": limit, "open_ok": 0, "open_breached": 0,
+                                           "resolved_ok": 0, "resolved_late": 0, "oldest_open_days": None})
+        if r["resolved_at"] is None:
+            age = _days(r["first_seen"], now)
+            s["open_breached" if age > limit else "open_ok"] += 1
+            s["oldest_open_days"] = max(age, s["oldest_open_days"] or 0)
+        else:
+            s["resolved_late" if _days(r["first_seen"], r["resolved_at"]) > limit else "resolved_ok"] += 1
+    return out
+
+
+def collect(db: str | Path, sla: dict[str, int] | None = None, now: str | None = None) -> dict:
     conn = sqlite3.connect(str(db))
     conn.row_factory = sqlite3.Row
     scans = [r["started_at"] for r in _q(conn, "SELECT started_at FROM scans ORDER BY started_at")]
@@ -82,7 +117,10 @@ def collect(db: str | Path) -> dict:
                            and (r["resolved_at"] is None or r["resolved_at"] > t)))
         a["trend"] = pts
         del a["rows"]
+    now = now or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    sla_rows = _q(conn, "SELECT severity, first_seen, resolved_at FROM findings")
     return {
+        "sla": sla_status(sla_rows, sla or DEFAULT_SLA_DAYS, now),
         "apps": apps,
         "series": series, "open_by_sev": open_by_sev, "fixable": fixable[0]["c"] if fixable else 0,
         "mttr": mttr, "resolved_total": resolved_total[0]["c"] if resolved_total else 0,
@@ -164,7 +202,7 @@ CSS = """
 body{font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#101828;margin:0;background:#f9fafb}
 main{max-width:860px;margin:0 auto;padding:32px 20px}
 h1{font-size:26px;margin:0}.sub{color:#475467;margin:4px 0 24px}
-.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px}
 .kpi{background:#fff;border:1px solid #eaecf0;border-radius:10px;padding:14px}
 .kpi b{display:block;font-size:26px}.kpi span{color:#475467;font-size:13px}
 section{background:#fff;border:1px solid #eaecf0;border-radius:10px;padding:18px;margin-bottom:16px}
@@ -184,6 +222,10 @@ def _fmt_h(h: float | None) -> str:
     if h is None:
         return "n/a"
     return f"{h:.1f} h" if h < 48 else f"{h / 24:.1f} d"
+
+
+def _age(d: float | None) -> str:
+    return "-" if d is None else f"{d:.1f} d"
 
 
 def render(data: dict, redteam: dict | None = None) -> str:
@@ -224,6 +266,21 @@ def render(data: dict, redteam: dict | None = None) -> str:
     ) or ("<tr><td colspan='2' class='muted'>No fixes yet: MTTR starts after the first fix merges "
           "and a later scan confirms the vulnerability is gone.</td></tr>")
 
+    sla = data.get("sla", {})
+    breached = sum(v["open_breached"] for v in sla.values())
+    sla_total = sum(sum(v[k] for k in ("open_ok", "open_breached", "resolved_ok", "resolved_late")) for v in sla.values())
+    sla_met = sum(v["open_ok"] + v["resolved_ok"] for v in sla.values())
+    sla_kpi = (f"<b class='{'ok' if breached == 0 else 'bad'}'>{breached}</b><span>open findings past SLA "
+               f"({100 * sla_met / sla_total:.0f}% within SLA)</span>" if sla_total else
+               "<b>0</b><span>open findings past SLA</span>")
+    sla_rows = "".join(
+        f"<tr><td>{sev.title()}</td><td class='num'>{v['sla_days']} d</td><td class='num'>{v['open_ok']}</td>"
+        f"<td class='num {'bad' if v['open_breached'] else ''}'>{v['open_breached']}</td>"
+        f"<td class='num'>{v['resolved_ok']}</td><td class='num {'bad' if v['resolved_late'] else ''}'>{v['resolved_late']}</td>"
+        f"<td class='num'>{_age(v['oldest_open_days'])}</td></tr>"
+        for sev in SEV_ORDER if (v := sla.get(sev))
+    ) or "<tr><td colspan='7' class='muted'>No findings yet.</td></tr>"
+
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     return f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -234,12 +291,15 @@ def render(data: dict, redteam: dict | None = None) -> str:
 <div class='kpi'><b>{crit_high}</b><span>open Critical + High</span></div>
 <div class='kpi'><b>{reduction}</b><span>Critical + High burned down from peak</span></div>
 <div class='kpi'>{mttr_kpi}</div>
+<div class='kpi'>{sla_kpi}</div>
 </div>
 <section><h2>Burn-down: open Critical and High (all apps)</h2>{_line_chart(s)}</section>
 <section><h2>By app</h2>{_apps_table(data.get('apps', {}))}</section>
 <section><h2>Open findings by severity</h2>{_bars(data['open_by_sev'])}
 <p class='muted'>{data['fixable']} of {open_total} open findings have a fix available. {data['resolved_total']} resolved so far.</p></section>
 <section><h2>Mean time to remediate by severity</h2><table>{mttr_rows}</table></section>
+<section><h2>SLA compliance by severity</h2><table><tr><th>Severity</th><th>SLA</th><th>Open, within SLA</th><th>Open, breached</th><th>Fixed on time</th><th>Fixed late</th><th>Oldest open</th></tr>{sla_rows}</table>
+<p class='muted'>SLA clock starts when Patchwarden first detects a finding. Targets come from <code>sla_days</code> in <code>policy/policy.yaml</code>.</p></section>
 <section><h2>Latest triage decisions</h2><table>{triage_rows}</table></section>
 <section><h2>Container self-healing</h2><table><tr><th>When</th><th>Image</th><th>Result</th><th>Status</th></tr>{heal_rows}</table></section>
 {rt}
@@ -247,7 +307,8 @@ def render(data: dict, redteam: dict | None = None) -> str:
 </main></body></html>"""
 
 
-def build(db: str | Path, out: str | Path, payloads: str | Path | None = None) -> Path:
+def build(db: str | Path, out: str | Path, payloads: str | Path | None = None,
+          policy: str | Path | None = "policy/policy.yaml", now: str | None = None) -> Path:
     redteam = None
     if payloads and Path(payloads).exists():
         from vra.redteam import CRITICAL_GOALS, CompromisedBackend, run_suite
@@ -258,5 +319,5 @@ def build(db: str | Path, out: str | Path, payloads: str | Path | None = None) -
                    "critical": len(crit), "landed": sum(r.attack_landed for r in crit)}
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render(collect(db), redteam))
+    out.write_text(render(collect(db, load_sla(policy), now), redteam))
     return out

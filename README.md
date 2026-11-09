@@ -31,7 +31,7 @@ A fix that fails verification (tests break, re-scan still shows the CVE, or a ne
 5. **Human review:** the agent drafts the PR with its reasoning; you approve or reject.
 6. **Verify:** tests pass, a re-scan confirms the CVE is gone, and the image is signed with Cosign.
 7. **Deploy:** the patched image rolls out to Kubernetes (kind in CI, AKS-ready), with automatic rollback if the rollout fails.
-8. **Dashboard:** burn-down, MTTR and auto-fix rate from the audit log ([live](https://deenojo.github.io/Vulnerability-Remediation-Agent/)).
+8. **Dashboard:** burn-down, MTTR, SLA breaches and auto-fix rate from the audit log ([live](https://deenojo.github.io/Vulnerability-Remediation-Agent/)).
 
 ## Tech stack
 
@@ -117,7 +117,7 @@ The project is built in six components, each one usable on its own and each prov
 - **Result:** [THREAT_MODEL.md](THREAT_MODEL.md). A fully compromised model lands **0/9** attacks; real Claude is fooled **0/9**
 
 ### 6. Dashboard and demo ✅
-- [Live burn-down dashboard](https://deenojo.github.io/Vulnerability-Remediation-Agent/): open vulns over time, MTTR, auto-fixed vs manual, triage decisions, heal history, red-team result, rebuilt nightly
+- [Live burn-down dashboard](https://deenojo.github.io/Vulnerability-Remediation-Agent/): open vulns over time, MTTR, SLA breaches by severity, auto-fixed vs manual, triage decisions, heal history, red-team result, rebuilt nightly
 - History persisted on an orphan `metrics` branch so every nightly run adds a point
 - [3-minute demo video](https://youtu.be/qShgD-97AX4): scan → triage → PR → policy gate → image patched → dashboard
 
@@ -129,6 +129,7 @@ The project is built in six components, each one usable on its own and each prov
 | Findings reduced by triage | Raw scanner findings vs findings the agent rated reachable or actionable | 977 raw → 793 unique before triage |
 | Triage accuracy | Agent decisions vs hand labels | 71% (Claude) vs 43% (heuristic) |
 | Auto-fix rate | Share of fixes merged or deployed with no human step | All Copa OS patches; 1 of 5 dependency fixes (the rest correctly routed to review) |
+| SLA compliance | Open findings past their severity SLA (Critical 7 d, High 30 d, Medium 90 d, Low 180 d, set in `policy/policy.yaml`) | 0 breached; 100% within SLA |
 | Critical/High burn-down | Open Critical+High at start vs end | 274 → 44 (−84%) on the demo app |
 | Injection resistance | Planted prompt-injection attempts that landed, out of total | 0/9 |
 

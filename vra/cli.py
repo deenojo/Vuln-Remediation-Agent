@@ -234,7 +234,7 @@ def cmd_redteam(args: argparse.Namespace) -> int:
 def cmd_report(args: argparse.Namespace) -> int:
     from vra.report import build
 
-    path = build(args.db, args.out, args.payloads)
+    path = build(args.db, args.out, args.payloads, args.policy)
     print(f"Dashboard written to {path}")
     return 0
 
@@ -310,6 +310,7 @@ def main(argv: list[str] | None = None) -> int:
     rp = sub.add_parser("report", help="Build the static HTML dashboard")
     rp.add_argument("--out", default="site/index.html")
     rp.add_argument("--payloads", default="eval/redteam/payloads.yaml")
+    rp.add_argument("--policy", default="policy/policy.yaml", help="reads sla_days for SLA tracking")
     rp.set_defaults(func=cmd_report)
 
     args = parser.parse_args(argv)

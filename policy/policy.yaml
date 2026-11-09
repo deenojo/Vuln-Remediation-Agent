@@ -32,3 +32,11 @@ always_review_packages:
   - django
   - cryptography
   - pyjwt
+
+# Remediation SLA: days from when Patchwarden first sees a finding to when a scan confirms it is gone.
+# Used by the dashboard to report SLA breaches by severity.
+sla_days:
+  CRITICAL: 7
+  HIGH: 30
+  MEDIUM: 90
+  LOW: 180

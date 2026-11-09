@@ -54,3 +54,27 @@ def test_app_attribution_and_per_app_table(tmp_path):
     main(["--db", str(db), "report", "--out", str(out), "--payloads", "nope"])
     page = out.read_text()
     assert "<code>app-a</code>" in page and "<code>app-b</code>" in page and "1 → 0" in page and "first scan" in page
+
+
+def test_sla_breaches_by_severity(tmp_path):
+    from vra.report import build, load_sla, sla_status
+
+    assert load_sla(ROOT / "policy/policy.yaml")["CRITICAL"] == 7
+    rows = [
+        {"severity": "CRITICAL", "first_seen": "2026-11-01T00:00:00+00:00", "resolved_at": None},   # 9 d open: breached
+        {"severity": "CRITICAL", "first_seen": "2026-11-08T00:00:00+00:00", "resolved_at": None},   # 2 d open: ok
+        {"severity": "HIGH", "first_seen": "2026-09-01T00:00:00+00:00",
+         "resolved_at": "2026-10-15T00:00:00+00:00"},                                              # 44 d: late
+        {"severity": "HIGH", "first_seen": "2026-11-01T00:00:00+00:00",
+         "resolved_at": "2026-11-02T00:00:00+00:00"},                                              # on time
+    ]
+    st = sla_status(rows, load_sla(None), now="2026-11-10T00:00:00+00:00")
+    assert st["CRITICAL"] == {"sla_days": 7, "open_ok": 1, "open_breached": 1, "resolved_ok": 0, "resolved_late": 0, "oldest_open_days": 9.0}
+    assert st["HIGH"]["resolved_late"] == 1 and st["HIGH"]["resolved_ok"] == 1
+
+    db = tmp_path / "f.db"
+    s = Store(db)
+    s.record_scan([F("CVE-1", Severity.CRITICAL)], ["r.txt"], now="2026-11-01T00:00:00+00:00")
+    out = build(db, tmp_path / "i.html", None, ROOT / "policy/policy.yaml", now="2026-11-10T00:00:00+00:00")
+    page = out.read_text()
+    assert "SLA compliance by severity" in page and "open findings past SLA" in page and "0% within SLA" in page
